@@ -1,0 +1,59 @@
+/dts-v1/;
+
+/*
+ * Samsung Galaxy Tab E 9.6 3G (SM-T561, "gtel3g")
+ * Spreadtrum SC7730SE, 1.5 GB RAM, 800x1280 panel, SC2723 PMIC.
+ *
+ * This file is dual-licensed: GPL-2.0 or X11.
+ */
+
+#include "sc7730se.dtsi"
+
+/ {
+	model = "Samsung Galaxy Tab E 9.6 3G (SM-T561)";
+	compatible = "samsung,gtel3g", "sprd,sc7730se";
+
+	chosen {
+		stdout-path = "serial1:115200n8";
+		bootargs = "console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x60000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		smem_reserved: smem@87800000 {
+			reg = <0x87800000 0x240000>;
+			no-map;
+		};
+
+		cp_reserved: cp-modem@88000000 {
+			reg = <0x88000000 0x1c00000>;
+			no-map;
+		};
+
+		fb_reserved: framebuffer@9ea44000 {
+			reg = <0x9ea44000 0x00bb8000>;
+			no-map;
+		};
+
+		ion_reserved: ion@9f5fc000 {
+			reg = <0x9f5fc000 0x007d4000>;
+			no-map;
+		};
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+};

@@ -709,6 +709,9 @@ dtb-$(CONFIG_ARCH_SPEAR3XX) += \
 	spear320-hmi.dtb
 dtb-$(CONFIG_ARCH_SPEAR6XX) += \
 	spear600-evb.dtb
+dtb-$(CONFIG_ARCH_SPRD) += \
+	sc7730se-gtelwifi.dtb \
+	sc7730se-gtel3g.dtb
 dtb-$(CONFIG_ARCH_STI) += \
 	stih407-b2120.dtb \
 	stih410-b2120.dtb \

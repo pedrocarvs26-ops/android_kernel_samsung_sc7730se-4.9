@@ -1,0 +1,23 @@
+{
+	"name": "SC7730SE kernel 4.9 (arm cross build)",
+	"//": "Ubuntu 20.04 on purpose: its default cross toolchain is GCC 9, which still builds Linux 4.9. GCC 10+ changed -fno-common and produces link errors on this kernel.",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu-20.04",
+	"hostRequirements": {
+		"cpus": 4,
+		"memory": "8gb",
+		"storage": "32gb"
+	},
+	"onCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends bc bison flex libssl-dev libelf-dev gcc-arm-linux-gnueabihf device-tree-compiler ccache abootimg lz4 cpio kmod && arm-linux-gnueabihf-gcc --version | head -n 1",
+	"remoteEnv": {
+		"ARCH": "arm",
+		"CROSS_COMPILE": "arm-linux-gnueabihf-"
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cpptools",
+				"timonwong.shellcheck"
+			]
+		}
+	}
+}
