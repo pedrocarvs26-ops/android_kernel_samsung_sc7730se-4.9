@@ -36,7 +36,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             bc bison build-essential ca-certificates cpio device-tree-compiler \
-            flex gcc-arm-linux-gnueabihf git kmod libelf-dev libssl-dev lz4
+            flex gcc-arm-linux-gnueabihf git kmod libc6-dev-armhf-cross \
+            libelf-dev libssl-dev lz4
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,9 +49,17 @@ jobs:
           ARCH: arm
           CROSS_COMPILE: arm-linux-gnueabihf-
 
+      # The kernel builds freestanding, but memdump is ordinary userspace code:
+      # it needs the armhf libc headers and libc.a from libc6-dev-armhf-cross.
+      # Without that package the Debian cross compiler ends its include search
+      # in the host /usr/include and dies on "sys/cdefs.h: No such file or
+      # directory". continue-on-error keeps a problem with a debug helper from
+      # throwing away an otherwise good kernel build.
       - name: Build the memdump helper
+        continue-on-error: true
         run: |
-          arm-linux-gnueabihf-gcc -static -O2 -Wall -o out/memdump tools/memdump.c
+          arm-linux-gnueabihf-gcc -static -O2 -Wall \
+            -o out/memdump tools/memdump.c
           arm-linux-gnueabihf-strip out/memdump
           ls -l out/memdump
 

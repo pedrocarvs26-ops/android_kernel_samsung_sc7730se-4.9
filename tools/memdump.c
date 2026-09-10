@@ -27,7 +27,15 @@
  *
  * Build
  * -----
+ *     sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
  *     arm-linux-gnueabihf-gcc -static -O2 -Wall -o memdump tools/memdump.c
+ *
+ * libc6-dev-armhf-cross is not optional. The kernel is freestanding and builds
+ * with the compiler alone, but this is ordinary userspace code: without the
+ * armhf libc headers the Debian cross compiler ends its include search in the
+ * host /usr/include, picks up the x86_64 <errno.h> and stops at
+ * "sys/cdefs.h: No such file or directory". The package also carries the
+ * libc.a that -static needs.
  *
  * Use (TWRP terminal, right after a warm reboot)
  * ----------------------------------------------
