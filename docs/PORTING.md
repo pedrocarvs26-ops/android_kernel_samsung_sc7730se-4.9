@@ -72,7 +72,7 @@ No other upstream file is modified, which keeps the port easy to review and reba
 * **Console index.** `console=ttyS1` assumes `sprd_serial` enumerates the enabled ports in DT
   order with UART0 first. If a serial console is ever attached and stays silent, try `ttyS0`;
   `earlycon` is address-based and therefore reliable. This only affects UART output — the
-  persistent RAM console (`ramoops` at `0x89b00000`, dumped from TWRP) records printk no
+  persistent RAM console (`ramoops` at `0x86b80000`, dumped from TWRP) records printk no
   matter which index the UART ends up with.
 * **No clock driver.** Only fixed clocks (`ext_26m`, `ext_32k`, `clk_48m`) are described. The
   real `scx30g` gate/PLL tree is not implemented, so anything beyond the UART and the timers
@@ -80,13 +80,18 @@ No other upstream file is modified, which keeps the port easy to review and reba
 * **No pinctrl.** UART pin muxing is inherited from the bootloader.
 * **No PMIC / regulators** (SC2723 over ADI), so no rail can be turned on from Linux.
 * **SMP power sequencing timings** are copied from the vendor code and unverified; use `nosmp`
-  or `maxcpus=1` for the first boot attempt.
+  or `maxcpus=1` for the first boot attempt. Note that those words only take effect if they
+  are in the appended DTB's `/chosen/bootargs` (which is what `port/repackboot.py --nosmp`
+  patches): this bootloader ignores the command line stored in the boot.img header.
 * **Bootloader watchdog.** If the kernel stalls early the device may reset before any output
   appears; that is not necessarily a kernel hang.
 * **Memory carve-outs** are copied from the vendor DT; the modem region must stay reserved even
-  though no modem driver exists. Its top 1 MiB (`0x89b00000`) now holds the `ramoops` RAM
-  console, deliberately: the stock kernel behind TWRP reserves the same window and never loads
-  a modem in recovery, which is exactly what makes the log survive and stay readable.
+  though no modem driver exists, and it runs all the way to `0x89c00000` — a dump of
+  `0x89b00000` taken from the device came back full of live SIPC ring buffer names. The
+  `ramoops` RAM console therefore lives at `0x86b80000` instead, inside the megabyte the
+  bootloader reserves for the stock RAM console (`sec_log=0xffe00@0x86b00000` on the stock
+  command line), which is the one region both kernels are known to keep out of their
+  allocators.
 
 ## 6. Roadmap
 

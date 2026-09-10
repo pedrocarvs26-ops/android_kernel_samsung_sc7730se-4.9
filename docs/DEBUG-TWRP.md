@@ -1,129 +1,171 @@
-# Debugging this port with nothing but TWRP
+# Debugging this port from TWRP
 
-No UART jig is needed. The kernel writes its console into a RAM region that survives a
-reboot, and TWRP can read that region back, so the whole edit → flash → read-the-log loop
-runs on the tablet alone.
+The SM-T560/T561 has no exposed UART header. The usual trick is a 619 kOhm
+resistor jig in the headphone jack, but this port is being developed without
+one, so **TWRP is the only diagnostic channel**. Everything below is built
+around that constraint.
 
-## Why this works
+## What the device has already told us
 
-* The board device trees declare a 1 MiB `ramoops` region at **`0x89b00000`**. Linux 4.9
-  already understands the `compatible = "ramoops"` reserved-memory binding
-  (`drivers/of/platform.c` creates the device at `arch_initcall_sync`, very early), so no
-  extra code is involved.
-* That address is inside the modem (CP) firmware window. The stock 3.10 kernel that TWRP
-  runs reserves the same window at boot and never loads a modem while in recovery, so those
-  pages are not allocated, cleared or reused. The framebuffer (`0x9ea44000`) and ION
-  (`0x9f5fc000`) regions would **not** be safe: TWRP draws its UI in one and allocates from
-  the other.
-* The region contains a single **console zone**, because `record-size = <0>` disables the
-  dmesg records. That matters for readability: 4.9 stores dmesg records zlib-compressed,
-  but never compresses the console. What ends up in RAM is plain text behind a 12-byte
-  header (`sig` = `0x43474244` "DBGC", `start`, `size`) — the same layout Samsung's own
-  `sec_log` uses on this SoC.
-* The vendor kernel is built with `CONFIG_STRICT_DEVMEM` **off** and `CONFIG_DEVKMEM=y`
-  (both verified in its `gtel3g_defconfig`), so `/dev/mem` inside TWRP reads physical RAM
-  directly.
+These are measurements, not assumptions. Each one changed the design.
 
-## The loop
+| Fact | How we know | Consequence |
+| --- | --- | --- |
+| The bootloader passes `sec_log=0xffe00@0x86b00000` | recovered from DRAM in a dump taken from TWRP | that megabyte is reserved on **every** boot, recovery included: the safest place for a persistent log |
+| The bootloader ignores the command line in the boot.img header | the recovered line contains none of the words we wrote there | only the **appended DTB** `/chosen/bootargs` configures the kernel |
+| The bootloader's own line contains `console=null loglevel=0` | same dump | `CONFIG_ARM_ATAG_DTB_COMPAT` must stay **off**, or that line replaces ours |
+| `0x89b00000` holds live modem data | a dump of it came back full of SIPC ring names (`sbuf_0_*`, `sblock_0_*`, `BML Downloaded NV Partition`) | the first `ramoops` address was inside the CP window and unusable |
+| `dd if=/dev/mem` cannot reach DRAM | `dd: /dev/mem: Bad address` | every DRAM address here is above 2 GiB and overflows a 32-bit `off_t`; use `memdump` |
+| A blind scan of `0x80000000..0xa0000000` resets the tablet | `memdump --scan` killed the TWRP session instantly | that range contains TrustZone and modem carve-outs; a non-secure read aborts on the bus and the SoC reboots. `--scan` was removed |
 
-1. **Back up boot, once.** TWRP → Backup → tick *Boot* → Swipe to Backup. This is the undo
-   button for everything below. Recovery lives in its own partition and is never touched by
-   these experiments, so a kernel that does not boot is not a brick.
-2. **Flash the test kernel.** Copy `out/boot.img` to the tablet, then TWRP → Install →
-   Install Image → pick `boot.img` → target *Boot*.
-3. **Boot it.** Reboot → System, then wait ~30 s. Expect one of:
-   * a black screen that stays black — the normal case, keep going;
-   * an immediate bounce into download mode or recovery — the bootloader rejected the
-     image, re-check the offsets in `port/mkboot.sh` against `abootimg -i stock_boot.img`;
-   * nothing that looks like Android even on success — this tree has no display, storage or
-     input drivers yet, so a *good* boot is also a silent one.
-4. **Warm reboot into TWRP.** Hold **Volume Up + Home + Power** until the tablet resets.
-   Do not hold Power alone for ten seconds and do not let the battery run out: the log
-   lives in DRAM and only survives a warm reset.
-5. **Dump the log with `memdump`.** TWRP → Advanced → Terminal, or `adb shell` from a PC
-   (TWRP runs adbd). `memdump` is a small static ARM binary built by CI next to the
-   kernel; download it from the same artifact, copy it to the tablet and run:
+The full recovered command line, for reference:
 
-   ```sh
-   chmod +x /sdcard/memdump
-   /sdcard/memdump                       # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
-   tail -n 200 /sdcard/ramoops.bin.txt
-   ```
+```
+mem=1536M init=/init ram=1536M lcd_id=ID000003 lcd_base=9ea44000
+initrd=0x85500000,0x7793fa wfixnv=0x88240000,0x40000 wruntimenv=0x88280000,0x60000
+bootmode=2 sec_debug.reset_reason=0x1A2B3C11 hw_revision=11 muic_rustproof=0
+sec_debug.level=0 androidboot.debug_level=0x4f4c console=null loglevel=0
+sec_log=0xffe00@0x86b00000 androidboot.bootloader=T560XXU0APL1
+androidboot.emmc_checksum=0 mem_cs=2, mem_cs0_sz=30000000 ... calmode=0
+```
 
-   It writes the raw region to `ramoops.bin` *and* a printable-only version to
-   `ramoops.bin.txt`, so no `strings` binary has to exist in the recovery. It also prints
-   whether the `DBGC` header is there. If it is not, `/sdcard/memdump --scan` searches
-   `0x80000000`–`0xa0000000` for the ramoops and sec_log signatures. If `/dev/mem` does not
-   exist, create it with `mknod /dev/mem c 1 1`.
+In recovery you can read the same thing directly with `cat /proc/cmdline`.
 
-   **`dd` cannot do this job.** `dd if=/dev/mem bs=4096 skip=563968 ...` answers
+## Memory map of the log window
 
-   ```
-   dd: /dev/mem: Bad address
-   ```
+```
+0x86b00000  +---------------------------+  bootloader reserves 1 MiB here
+            | struct sec_log_buffer     |  24 B: sig, start, size, from, to
+            | recovery kernel's sec_log |  TWRP writes from here upwards,
+            | (a few tens of KiB)       |  tens of KiB per boot
+0x86b80000  +---------------------------+  <- our ramoops zone starts
+            | ramoops console, 384 KiB  |  'DBGC' header + plain text
+0x86be0000  +---------------------------+
+            | slack                     |
+0x86bffe18  | sec_log_ptr (4 B)         |
+0x86bffe1c  | sec_log_mag (4 B, 'LOGM') |
+0x86c00000  +---------------------------+
+```
 
-   because DRAM on this SoC starts at `0x80000000`: every address of interest is past
-   2 GiB and does not fit in a signed 32 bit `off_t`. The seek is rejected, `dd` falls back
-   to reading from physical address 0, that address is below `PHYS_OFFSET`, and
-   `read_mem()` in `drivers/char/mem.c` returns `EFAULT` — the "Bad address" above. Even
-   with a correct 64 bit seek, `read()` still has to pass `valid_phys_addr_range()`
-   (`arch/arm/mm/mmap.c`), which rejects carved-out regions. `memdump` uses a 64 bit
-   `pread()` and falls back to `mmap()`, which only has to pass the far more permissive
-   `valid_mmap_phys_addr_range()`.
+The 512 KiB below our zone is deliberate: the recovery kernel re-initialises
+`sec_log` at the base of the window on every boot, so anything we put there
+would be overwritten by TWRP itself before we could read it.
 
-   Two things worth trying first, since they need no binary at all:
+The board `.dts` files declare the zone as:
 
-   ```sh
-   ls -l /proc/last_kmsg          # the recovery kernel's own RAM console, if enabled
-   busybox devmem 0x89b00000 32   # single word, goes through mmap instead of read
-   ```
+```
+ramoops@86b80000 {
+	compatible = "ramoops";
+	reg = <0x86b80000 0x60000>;
+	console-size = <0x60000>;
+	record-size = <0>;
+	ecc-size = <0>;
+};
+```
 
-   A `0x43474244` answer from `devmem` means the ramoops header is there and only the
-   transfer was the problem.
-6. **Keep a copy.** `adb pull /sdcard/ramoops.bin` (or MTP), then read `ramoops.bin.txt`
-   on the PC. Attach it to an issue when something is unclear.
+`record-size = <0>` leaves the console zone as the only zone. That matters:
+Linux 4.9 zlib-compresses dmesg records, but never the console zone, so the
+buffer stays readable with nothing but `strings`.
+
+## Procedure after a failed boot
+
+1. Flash the image: TWRP -> `Install` -> `Install Image` -> pick the `.img` ->
+   partition **Boot**.
+2. Copy `memdump` to `/sdcard` **before** rebooting. It ships in the same CI
+   artifact as the kernel.
+3. Reboot and let the tablet sit on the black screen for ~40 s.
+4. Warm reboot into recovery: **Volume Up + Home + Power**. Never pull the
+   battery or the charger: the log lives in DRAM and only survives a warm
+   reset.
+5. In the TWRP terminal or `adb shell`:
+
+```sh
+cp /sdcard/memdump /tmp/memdump
+chmod +x /tmp/memdump
+/tmp/memdump
+tail -n 200 /sdcard/ramoops.bin.txt
+```
+
+`memdump` writes both `/sdcard/ramoops.bin` and a printable-strings version at
+`/sdcard/ramoops.bin.txt`, so no `strings` binary is needed in the recovery.
+
+## memdump reference
+
+```sh
+./memdump                                # 0x86b80000 + 0x60000 -> /sdcard/ramoops.bin
+./memdump 0x86b80000 0x60000 /sdcard/x   # any range, any output file
+./memdump --probe                        # 32 bytes at each known log address
+./memdump --seclog [outfile]             # the whole bootloader sec_log window,
+                                         # with the vendor header decoded
+```
+
+`--probe` is the safe replacement for the old `--scan`: it reads a handful of
+specific addresses instead of walking DRAM, so it cannot wander into a
+TrustZone carve-out and reset the device.
+
+`--seclog` is useful even before flashing anything: run it from a normal TWRP
+session and the recovery kernel's own boot log should appear. That proves the
+window is real, that `/dev/mem` reads work, and shows how many bytes TWRP
+writes (`write ptr`), which is what the 512 KiB of slack is sized against.
+
+If `/dev/mem` is missing: `mknod /dev/mem c 1 1`.
 
 ## Reading the result
 
 | What you see | What it means |
 | --- | --- |
-| `Booting Linux on physical CPU 0x0`, then a trailing `calling  <name>+0x0/0x...` line with no matching `initcall <name> returned` | the kernel ran and hung inside that initcall. `initcall_debug` is in the default command line for exactly this reason. |
-| a long log ending in `VFS: Unable to mount root fs` | the current success criterion — the port boots, there is simply no eMMC driver yet |
-| `Unable to handle kernel paging request` / `Internal error: Oops` plus a backtrace | a real bug with a real stack trace; `CONFIG_PANIC_ON_OOPS=y` stops the machine right there so nothing scrolls it away |
-| `BUG: soft lockup` or `INFO: task ... blocked for more than 60 seconds` | a hang that the watchdogs turned into a panic, with the log intact |
-| the log from the *previous* attempt | this boot never got far enough to write anything new |
-| all zeros, no `DBGC` header anywhere | the kernel never reached `arch_initcall_sync` — see below |
+| `signature: 0x43474244 'DBGC'` plus kernel text | the kernel booted far enough to register the console. The last line before the truncation is where it died |
+| `signature: 0x00000000`, buffer all zeros | ramoops never initialised. Either the kernel died before `arch_initcall_sync` (where the reserved-memory device is created), or it never ran at all |
+| `signature: 0x00000000`, buffer full of unrelated text | wrong address: something else owns that memory. This is what happened at `0x89b00000` |
+| `memdump: reading ...: Bad address` | the address is outside what the recovery kernel maps; check `/proc/cmdline` and `--probe` |
 
-## If the buffer stays empty
+A single word can also be read without `memdump`:
 
-An empty buffer is itself information: the failure happened before the first initcalls, so
-it is in the decompressor, `head.S`, or the DTB/MMU handoff. Work through these:
+```sh
+busybox devmem 0x86b80000 32   # expect 0x43474244 after a successful boot
+```
 
-1. Boot with `nosmp` (or `maxcpus=1`). SMP bring-up in `arch/arm/mach-sprd/platsmp.c` is the
-   least verified code in the tree.
-2. Verify the image layout: `abootimg -i out/boot.img` versus the stock boot image.
-   Wrong base or kernel offset means the kernel is never even entered.
-3. Verify the DTB really got appended — `out/zImage-dtb` must be bigger than `out/zImage` —
-   and that `CONFIG_ARM_APPENDED_DTB=y` survived your config edits.
-4. Try the other board DTB (`BOARD=gtel3g` / `BOARD=gtelwifi`); a wrong `memory` node is
-   fatal this early.
-5. Bypass the DTB for the region and pass it on the command line instead:
-   `ramoops.mem_address=0x89b00000 ramoops.mem_size=0x100000 ramoops.console_size=0x100000
-   ramoops.record_size=0 ramoops.ecc=0`. Use this only if the DTB path is suspect — with
-   both in place the second one to probe just logs "already initialized".
-6. Only then consider hardware: a 619 kOhm jig on the headphone jack (115200 8N1,
-   `earlycon=sprd_serial,0x70100000`) is the sole way to see the decompressor talk.
+That goes through `mmap`, which passes a much weaker address check than
+`read()`, so it works where `dd` does not.
+
+## Other channels worth checking
+
+```sh
+ls -l /proc/last_kmsg /sys/fs/pstore
+```
+
+`/proc/last_kmsg` belongs to the recovery kernel, not ours: the stock 3.10 tree
+builds with `CONFIG_SEC_LOG_LAST_KMSG=y` and copies the previous contents of
+the `sec_log` buffer there **if** the trailing magic is `LOGM`. Our ramoops
+header is not that format, so it will not show our log today. Making the port
+write a `sec_log`-compatible buffer is a possible future step, and would give
+us `/proc/last_kmsg` for free.
+
+## If the buffer is empty
+
+Work through this in order:
+
+1. `cat /proc/cmdline` and confirm `sec_log=0xffe00@0x86b00000` is still what
+   this bootloader passes. If the address moved, update the two `.dts` files.
+2. `/tmp/memdump --seclog` from a plain TWRP boot. If even the recovery
+   kernel's own log is not there, the problem is the dump path, not the port.
+3. `/tmp/memdump --probe` to see whether a `DBGC` header landed somewhere else.
+4. Confirm the flashed kernel actually has the plumbing: the CI refuses to
+   upload a build whose DTB has no `ramoops` node or whose `.config` lost
+   `CONFIG_PSTORE_RAM=y`, and every artifact carries `out/BUILD-INFO.txt` with
+   the commit it was built from. Check that file before blaming the device.
+5. Try the single-core image (`--nosmp`). If SMP bring-up is what hangs, it
+   hangs before the console is registered, which looks identical to "nothing
+   ran".
+6. As a last resort, add the parameters to `/chosen/bootargs` in the `.dts`
+   (not to the boot.img header, which this bootloader ignores):
+   `ramoops.mem_address=0x86b80000 ramoops.mem_size=0x60000
+   ramoops.console_size=0x60000 ramoops.record_size=0 ramoops.ecc=0`
 
 ## Moving the region
 
-If some future TWRP build turns out to touch `0x89b00000`, change it in one place per board
-(the `ramoops@89b00000` node in the board `.dts`), shrink or grow the neighbouring
-`cp-modem` reservation so the two never overlap, and recompute the `dd` offset as
-`address / 4096`. Safe neighbourhoods are the modem window `0x88000000`–`0x89c00000` and the
-SMEM window `0x87800000`; avoid the framebuffer and ION.
-
-## Bonus: TWRP is also the flashing tool
-
-Odin and download mode are not required at any point. `port/mkboot.sh` still produces
-`boot_<board>.tar.md5` for Odin, but `out/boot.img` flashed from TWRP → Install → Install
-Image does the same job, and TWRP → Restore puts the stock kernel back.
+If a future TWRP build turns out to write further into the window, change the
+`ramoops@86b80000` node in both board `.dts` files and the `DEFAULT_ADDR` /
+`DEFAULT_SIZE` defines at the top of `tools/memdump.c`. Keep the zone inside
+`0x86b00000..0x86c00000`: that is the only range this bootloader is known to
+keep out of both kernels' allocators.

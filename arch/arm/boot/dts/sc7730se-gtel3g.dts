@@ -28,28 +28,29 @@
 		#size-cells = <1>;
 		ranges;
 
+		/*
+		 * Persistent kernel log, inside the window the bootloader already
+		 * reserves for the stock RAM console ("sec_log=0xffe00@0x86b00000"
+		 * on the stock command line); see docs/DEBUG-TWRP.md and the
+		 * longer comment in sc7730se-gtelwifi.dts.
+		 */
+		ramoops@86b80000 {
+			compatible = "ramoops";
+			reg = <0x86b80000 0x60000>;
+			console-size = <0x60000>;
+			record-size = <0>;
+			ecc-size = <0>;
+		};
+
 		smem_reserved: smem@87800000 {
 			reg = <0x87800000 0x240000>;
 			no-map;
 		};
 
-		/* top 1 MiB carved out for the RAM console below */
+		/* the CP owns everything up to 0x89c00000, SIPC rings included */
 		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1b00000>;
+			reg = <0x88000000 0x1c00000>;
 			no-map;
-		};
-
-		/*
-		 * Persistent kernel log, read back from TWRP after a failed boot;
-		 * see docs/DEBUG-TWRP.md and the longer comment in
-		 * sc7730se-gtelwifi.dts.
-		 */
-		ramoops@89b00000 {
-			compatible = "ramoops";
-			reg = <0x89b00000 0x100000>;
-			console-size = <0x100000>;
-			record-size = <0>;
-			ecc-size = <0>;
 		};
 
 		fb_reserved: framebuffer@9ea44000 {

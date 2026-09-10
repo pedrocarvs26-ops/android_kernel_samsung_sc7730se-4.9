@@ -182,6 +182,9 @@ print('ramdisk    : %d bytes%s' % (len(ramdisk), ' (replaced)' if args.ramdisk e
 if dt:
     print('dt area    : %d bytes (stock, untouched)' % len(dt))
 print('cmdline    : %s' % cmdline)
+print('             (informational: this bootloader builds its own command\n'
+      '             line and ignores the header field, so the appended DTB\n'
+      '             is what actually configures the kernel)')
 print('written    : %s, %d bytes (%.2f MiB)' % (args.out, len(out), len(out) / 1048576.0))
 if len(out) > len(stock):
     print('warning: the new image is larger than the stock one; make sure it '
@@ -192,8 +195,9 @@ print('Flash it from TWRP: Install -> Install Image -> %s -> Boot.'
 print('After the boot attempt, warm reboot into TWRP (Volume Up + Home + Power)')
 print('and dump the RAM console, see docs/DEBUG-TWRP.md:')
 print('  cp /sdcard/memdump /tmp/memdump && chmod +x /tmp/memdump')
-print('  /tmp/memdump')
+print('  /tmp/memdump                 # 0x86b80000, the ramoops zone')
 print('  tail -n 200 /sdcard/ramoops.bin.txt')
+print('  /tmp/memdump --probe         # if that came back empty')
 print()
 print('dd cannot do that read: every DRAM address on this SoC is above 2 GiB,')
 print('which does not fit a 32 bit off_t, so dd stops with "Bad address".')

@@ -30,11 +30,18 @@ CONFIG_AEABI=y
 CONFIG_HIGHMEM=y
 CONFIG_CMA=y
 CONFIG_ARM_APPENDED_DTB=y
-CONFIG_ARM_ATAG_DTB_COMPAT=y
+# The appended DTB has to be the authority on the command line. A dump taken
+# from recovery shows the Samsung bootloader builds its own line, ignores the
+# one in the boot.img header, and puts "console=null loglevel=0" in it. With
+# ATAG_DTB_COMPAT the decompressor folds exactly that into /chosen/bootargs,
+# overwriting ours and silently dropping the nosmp variant of the image. The
+# ATAG memory map is no loss: mem=1536M matches the DTS memory node.
+# CONFIG_ARM_ATAG_DTB_COMPAT is not set
 # initcall_debug names every initcall as it runs, so the last line in the RAM
 # console identifies a silent hang; ignore_loglevel forces everything out.
 CONFIG_CMDLINE="console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend initcall_debug ignore_loglevel"
-# append the above to whatever the Samsung bootloader passes
+# appended to the DTB command line, so these survive even if something else
+# rewrites /chosen/bootargs
 CONFIG_CMDLINE_EXTEND=y
 CONFIG_VFP=y
 CONFIG_NEON=y

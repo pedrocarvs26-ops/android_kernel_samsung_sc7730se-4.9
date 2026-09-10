@@ -204,11 +204,20 @@ Boot addresses from the vendor `Makefile.boot`:
   clocks and pinctrl are up.
 * Physical access to the UART is through the headphone jack with a **619 kOhm** resistor jig.
   That jig is **optional** for this port. The primary log channel is the persistent RAM
-  console (`ramoops`, 1 MiB at `0x89b00000`, carved out of the modem window), which is dumped
-  from TWRP with `dd if=/dev/mem` after a warm reboot — see [`DEBUG-TWRP.md`](DEBUG-TWRP.md).
-  The vendor 3.10 kernel that TWRP runs is built with `CONFIG_STRICT_DEVMEM` off and
-  `CONFIG_DEVKMEM=y`, which is what makes reading raw physical RAM from recovery possible.
+  console (`ramoops`, 384 KiB at `0x86b80000`, inside the window the bootloader reserves for
+  the stock RAM console), dumped from TWRP with [`tools/memdump.c`](../tools/memdump.c) after
+  a warm reboot — see [`DEBUG-TWRP.md`](DEBUG-TWRP.md). `dd` cannot do that read: every DRAM
+  address here is above 2 GiB and overflows a 32-bit `off_t`. The vendor 3.10 kernel that
+  TWRP runs is built with `CONFIG_STRICT_DEVMEM` off and `CONFIG_DEVKMEM=y`, which is what
+  makes reading raw physical RAM from recovery possible at all.
+* **The bootloader builds its own kernel command line and ignores the one in the boot.img
+  header.** The line recovered from a running device is
+  `mem=1536M init=/init ... console=null loglevel=0 sec_log=0xffe00@0x86b00000
+  androidboot.bootloader=T560XXU0APL1 ...`. Two consequences: the only command line we
+  control is `/chosen/bootargs` in the **appended DTB**, and `CONFIG_ARM_ATAG_DTB_COMPAT`
+  must stay **off**, or the decompressor folds that `console=null loglevel=0` into the DTB
+  and overwrites ours.
 * The bootloader expects a Samsung `boot.img` containing `zImage` with an **appended DTB**
-  (`CONFIG_ARM_APPENDED_DTB` + `CONFIG_ARM_ATAG_DTB_COMPAT`), flashed with Odin or heimdall.
+  (`CONFIG_ARM_APPENDED_DTB`, without `ATAG_DTB_COMPAT`), flashed with Odin or heimdall.
 * Vendor kernel command line: `androidboot.hardware=sc8830`; vendor `CONFIG_HZ=100`,
   `CONFIG_PAGE_OFFSET=0xC0000000`, `CONFIG_NR_CPUS=4`.

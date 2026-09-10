@@ -18,7 +18,7 @@ needed to build is in the tree; nothing has to be downloaded or patched in.
 | Device trees for SM-T560 and SM-T561 | done |
 | Bring-up defconfig (`sc7730se_defconfig`) | done |
 | Serial console (upstream `sprd_serial`, no vendor code) | wired up, `ttyS1` assumption unverified, UART jig optional |
-| Persistent RAM console (`pstore`/`ramoops` at `0x89b00000`) | done, **primary debug channel**, read from TWRP |
+| Persistent RAM console (`pstore`/`ramoops` at `0x86b80000`) | done, **primary debug channel**, read from TWRP |
 | GIC, SCU, syscon nodes | done |
 | Clock controller driver | **not started** (fixed clocks only) |
 | pinctrl / GPIO / EIC | **not started** |
@@ -46,15 +46,23 @@ cross toolchain: GCC 10 switched to `-fno-common` and breaks Linux 4.9 with
 
 ## How this port is debugged (no UART jig)
 
-There is no serial jig for this device, so the kernel writes its console into a 1 MiB
-`ramoops` region at `0x89b00000`. That address sits inside the modem carve-out, which the
-stock 3.10 kernel behind TWRP also reserves and never uses in recovery, so the log survives
-a warm reboot. After a boot attempt, hold Volume Up + Home + Power to get back into TWRP
-(never cut the power) and dump it:
+There is no serial jig for this device, so the kernel writes its console into a 384 KiB
+`ramoops` region at `0x86b80000`. That address comes from the device itself: the stock
+command line, recovered out of DRAM from recovery, contains
+`sec_log=0xffe00@0x86b00000`, so the bootloader keeps `0x86b00000..0x86c00000` out of the
+usable memory map on every boot, recovery included. Our zone sits in the upper half of
+that window, because the recovery kernel re-initialises its own `sec_log` at the base.
+
+The first attempt used `0x89b00000`, at the top of the modem window. A dump from the
+device came back full of live SIPC ring buffer names, so that memory belongs to the CP;
+the board device trees now reserve the modem window all the way to `0x89c00000`.
+
+After a boot attempt, hold Volume Up + Home + Power to get back into TWRP (never cut the
+power) and dump it:
 
 ```sh
 chmod +x /sdcard/memdump
-/sdcard/memdump                     # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+/sdcard/memdump                     # 0x86b80000 + 0x60000 -> /sdcard/ramoops.bin
 tail -n 200 /sdcard/ramoops.bin.txt
 ```
 

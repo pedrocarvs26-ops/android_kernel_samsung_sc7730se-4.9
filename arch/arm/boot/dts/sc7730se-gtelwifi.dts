@@ -32,6 +32,41 @@
 		#size-cells = <1>;
 		ranges;
 
+		/*
+		 * Persistent kernel log, read back from TWRP after a failed boot.
+		 * This is the only debug channel on a device without a UART jig,
+		 * see docs/DEBUG-TWRP.md.
+		 *
+		 * The address is not a guess. The stock command line, recovered
+		 * out of DRAM from recovery, contains
+		 * "sec_log=0xffe00@0x86b00000": the Samsung bootloader keeps
+		 * 0x86b00000..0x86c00000 out of the usable memory map on every
+		 * boot, recovery included, for the stock RAM console. Our zone
+		 * sits in the upper half of that window because the recovery
+		 * kernel writes its own sec_log from the base upwards and only
+		 * produces a few tens of KiB, so the 512 KiB below us acts as a
+		 * sacrificial buffer.
+		 *
+		 * The first attempt put this at 0x89b00000, the top of the modem
+		 * window. A dump from the device came back full of live SIPC ring
+		 * buffer names (sbuf_0_*, sblock_0_*), so that memory belongs to
+		 * the CP. The framebuffer and ION regions are no better: TWRP
+		 * draws its UI in one and allocates from the other.
+		 *
+		 * record-size = <0> leaves the console zone as the only zone, so
+		 * it starts at the base of the region and stays plain text: 4.9
+		 * stores dmesg records zlib-compressed, but never the console.
+		 * The 12-byte header (sig 0x43474244 "DBGC", start, size) is the
+		 * same layout Samsung's own sec_log uses on this SoC.
+		 */
+		ramoops@86b80000 {
+			compatible = "ramoops";
+			reg = <0x86b80000 0x60000>;
+			console-size = <0x60000>;
+			record-size = <0>;
+			ecc-size = <0>;
+		};
+
 		/* shared memory with the modem/DSP side */
 		smem_reserved: smem@87800000 {
 			reg = <0x87800000 0x240000>;
@@ -40,37 +75,13 @@
 
 		/*
 		 * CP (modem) firmware window, kept even on Wi-Fi only models.
-		 * The top 1 MiB is carved out for the RAM console below, so this
-		 * window ends at 0x89b00000 instead of 0x89c00000.
+		 * It runs all the way to 0x89c00000: the RAM console used to be
+		 * carved out of the top megabyte, which is exactly why the first
+		 * dump came back full of modem data.
 		 */
 		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1b00000>;
+			reg = <0x88000000 0x1c00000>;
 			no-map;
-		};
-
-		/*
-		 * Persistent kernel log, read back from TWRP after a failed boot.
-		 * This is the only debug channel on a device without a UART jig,
-		 * see docs/DEBUG-TWRP.md.
-		 *
-		 * It sits inside the modem window on purpose: the stock 3.10
-		 * kernel that TWRP runs reserves that same window and never loads
-		 * a modem while in recovery, so the buffer survives the warm
-		 * reboot untouched. The framebuffer and ION regions further up are
-		 * not safe - TWRP draws its UI in one and allocates from the other.
-		 *
-		 * record-size = <0> leaves the console zone as the only zone, so
-		 * it starts at the base of the region and stays plain text: 4.9
-		 * stores dmesg records zlib-compressed, but never the console.
-		 * The 12-byte header (sig 0x43474244 "DBGC", start, size) is the
-		 * same layout Samsung's own sec_log uses on this SoC.
-		 */
-		ramoops@89b00000 {
-			compatible = "ramoops";
-			reg = <0x89b00000 0x100000>;
-			console-size = <0x100000>;
-			record-size = <0>;
-			ecc-size = <0>;
 		};
 
 		/* framebuffer handed over by the bootloader */

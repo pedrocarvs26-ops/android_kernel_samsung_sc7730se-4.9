@@ -157,13 +157,14 @@ stock kernel back. No UART jig and no PC are required — see
    Image → *Boot*. (`out/boot_*.tar.md5` is the same image packed for Odin — AP slot, Auto
    Reboot off — if you would rather use a PC.)
 4. **Read the log from TWRP; no UART jig needed.** The kernel keeps its console in a RAM
-   region (`ramoops`, 1 MiB at `0x89b00000`) that the stock kernel behind TWRP never
-   touches, so after a boot attempt you warm reboot into recovery with **Volume Up + Home +
-   Power** and dump it:
+   region (`ramoops`, 384 KiB at `0x86b80000`) that sits inside the megabyte the Samsung
+   bootloader already reserves for the stock RAM console — it passes
+   `sec_log=0xffe00@0x86b00000` on every boot, recovery included — so after a boot attempt
+   you warm reboot into recovery with **Volume Up + Home + Power** and dump it:
 
    ```sh
    chmod +x /sdcard/memdump
-   /sdcard/memdump                     # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+   /sdcard/memdump                     # 0x86b80000 + 0x60000 -> /sdcard/ramoops.bin
    tail -n 200 /sdcard/ramoops.bin.txt
    ```
 

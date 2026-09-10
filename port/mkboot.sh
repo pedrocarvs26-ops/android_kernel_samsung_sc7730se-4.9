@@ -98,9 +98,11 @@ cat <<EOF
    reboot back into TWRP. Do not cut the power: the log lives in DRAM and only
    survives a warm reset.
 4. In the TWRP terminal (or adb shell), dump the RAM console:
-     dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
-     strings /sdcard/ramoops.bin | tail -n 200
-   563968 is 0x89b00000 / 4096 and 256 pages is the 1 MiB region.
+     cp /sdcard/memdump /tmp/memdump && chmod +x /tmp/memdump
+     /tmp/memdump                  # 0x86b80000 + 0x60000
+     tail -n 200 /sdcard/ramoops.bin.txt
+   dd cannot do that read: every DRAM address on this SoC is above 2 GiB,
+   which does not fit a 32 bit off_t, so dd stops with "Bad address".
    How to read the result: docs/DEBUG-TWRP.md
 5. Once it gets past SMP bring-up, flash $OUT/boot.img for all four cores.
 
