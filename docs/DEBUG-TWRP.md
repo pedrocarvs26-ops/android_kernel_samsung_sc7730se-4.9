@@ -40,18 +40,48 @@ runs on the tablet alone.
 4. **Warm reboot into TWRP.** Hold **Volume Up + Home + Power** until the tablet resets.
    Do not hold Power alone for ten seconds and do not let the battery run out: the log
    lives in DRAM and only survives a warm reset.
-5. **Dump the log.** TWRP → Advanced → Terminal, or `adb shell` from a PC (TWRP runs adbd):
+5. **Dump the log with `memdump`.** TWRP → Advanced → Terminal, or `adb shell` from a PC
+   (TWRP runs adbd). `memdump` is a small static ARM binary built by CI next to the
+   kernel; download it from the same artifact, copy it to the tablet and run:
 
    ```sh
-   dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
-   strings /sdcard/ramoops.bin | tail -n 200
+   chmod +x /sdcard/memdump
+   /sdcard/memdump                       # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+   tail -n 200 /sdcard/ramoops.bin.txt
    ```
 
-   `563968` is `0x89b00000 / 4096` and `256` pages is the 1 MiB region. If `/dev/mem` does
-   not exist, create it with `mknod /dev/mem c 1 1`. If busybox has no `strings`, skip it
-   and read the file on a PC instead.
-6. **Keep a copy.** `adb pull /sdcard/ramoops.bin` (or MTP), then `strings ramoops.bin |
-   less` on the PC. Attach it to an issue when something is unclear.
+   It writes the raw region to `ramoops.bin` *and* a printable-only version to
+   `ramoops.bin.txt`, so no `strings` binary has to exist in the recovery. It also prints
+   whether the `DBGC` header is there. If it is not, `/sdcard/memdump --scan` searches
+   `0x80000000`–`0xa0000000` for the ramoops and sec_log signatures. If `/dev/mem` does not
+   exist, create it with `mknod /dev/mem c 1 1`.
+
+   **`dd` cannot do this job.** `dd if=/dev/mem bs=4096 skip=563968 ...` answers
+
+   ```
+   dd: /dev/mem: Bad address
+   ```
+
+   because DRAM on this SoC starts at `0x80000000`: every address of interest is past
+   2 GiB and does not fit in a signed 32 bit `off_t`. The seek is rejected, `dd` falls back
+   to reading from physical address 0, that address is below `PHYS_OFFSET`, and
+   `read_mem()` in `drivers/char/mem.c` returns `EFAULT` — the "Bad address" above. Even
+   with a correct 64 bit seek, `read()` still has to pass `valid_phys_addr_range()`
+   (`arch/arm/mm/mmap.c`), which rejects carved-out regions. `memdump` uses a 64 bit
+   `pread()` and falls back to `mmap()`, which only has to pass the far more permissive
+   `valid_mmap_phys_addr_range()`.
+
+   Two things worth trying first, since they need no binary at all:
+
+   ```sh
+   ls -l /proc/last_kmsg          # the recovery kernel's own RAM console, if enabled
+   busybox devmem 0x89b00000 32   # single word, goes through mmap instead of read
+   ```
+
+   A `0x43474244` answer from `devmem` means the ramoops header is there and only the
+   transfer was the problem.
+6. **Keep a copy.** `adb pull /sdcard/ramoops.bin` (or MTP), then read `ramoops.bin.txt`
+   on the PC. Attach it to an issue when something is unclear.
 
 ## Reading the result
 

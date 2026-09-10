@@ -48,6 +48,12 @@ jobs:
           ARCH: arm
           CROSS_COMPILE: arm-linux-gnueabihf-
 
+      - name: Build the memdump helper
+        run: |
+          arm-linux-gnueabihf-gcc -static -O2 -Wall -o out/memdump tools/memdump.c
+          arm-linux-gnueabihf-strip out/memdump
+          ls -l out/memdump
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -56,4 +62,5 @@ jobs:
             out/zImage
             out/zImage-dtb
             out/*.dtb
+            out/memdump
           if-no-files-found: error

@@ -162,9 +162,17 @@ stock kernel back. No UART jig and no PC are required — see
    Power** and dump it:
 
    ```sh
-   dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
-   strings /sdcard/ramoops.bin | tail -n 200
+   chmod +x /sdcard/memdump
+   /sdcard/memdump                     # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+   tail -n 200 /sdcard/ramoops.bin.txt
    ```
+
+   `memdump` ([`tools/memdump.c`](tools/memdump.c)) is a small static ARM helper that CI
+   builds next to the kernel and ships in the same artifact; it also writes a
+   printable-only `.txt`, so the recovery does not need a `strings` binary. Do **not** use
+   `dd` for this: DRAM starts at `0x80000000`, that offset does not fit in a signed 32 bit
+   `off_t`, so `dd` ends up reading physical address 0 and prints
+   `dd: /dev/mem: Bad address`.
 
    Never cut the power in between — the log lives in DRAM and only survives a warm reset.
    [`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md) explains how to read the output and what an

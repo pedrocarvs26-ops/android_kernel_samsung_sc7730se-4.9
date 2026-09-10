@@ -53,9 +53,16 @@ a warm reboot. After a boot attempt, hold Volume Up + Home + Power to get back i
 (never cut the power) and dump it:
 
 ```sh
-dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
-strings /sdcard/ramoops.bin | tail -n 200
+chmod +x /sdcard/memdump
+/sdcard/memdump                     # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+tail -n 200 /sdcard/ramoops.bin.txt
 ```
+
+`memdump` (`tools/memdump.c`, cross-compiled statically by CI and shipped in the kernel
+artifact) replaces `dd` here. DRAM starts at `0x80000000`, so the byte offset does not fit
+in a signed 32 bit `off_t`; `dd` falls back to reading physical address 0, which is below
+`PHYS_OFFSET`, and fails with `dd: /dev/mem: Bad address`. `memdump` uses a 64 bit
+`pread()` with an `mmap()` fallback and writes a printable-only `.txt` next to the dump.
 
 `initcall_debug` and `ignore_loglevel` are in the default command line, and
 `CONFIG_PANIC_ON_OOPS` plus the hung-task and softlockup panics are enabled, so a hang turns

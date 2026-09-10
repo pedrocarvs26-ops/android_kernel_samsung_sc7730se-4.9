@@ -116,5 +116,6 @@ cat arch/arm/boot/zImage arch/arm/boot/dts/sc7730se-gtelwifi.dtb > zImage-dtb
 
 Then repack `zImage-dtb` into the stock `boot.img` (same base, page size and ramdisk) with
 `port/mkboot.sh`, and flash it from TWRP (Install → Install Image → Boot). After the boot
-attempt, warm reboot into TWRP and dump the RAM console with `dd if=/dev/mem`; the whole
+attempt, warm reboot into TWRP and dump the RAM console with `tools/memdump` (`dd` cannot
+reach past 2 GiB on this SoC and answers `Bad address`); the whole
 procedure and how to interpret it are in [`DEBUG-TWRP.md`](DEBUG-TWRP.md).
