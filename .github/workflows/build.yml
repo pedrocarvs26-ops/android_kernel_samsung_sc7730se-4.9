@@ -53,6 +53,28 @@ jobs:
           arm-linux-gnueabihf-strip out/memdump
           ls -l out/memdump
 
+      # A kernel built before the RAM console existed is indistinguishable
+      # from a kernel that dies in the first instruction: both leave the
+      # ramoops region full of zeros. Fail here instead, and stamp every
+      # artifact with the commit it came from so a downloaded zip can always be
+      # traced back to a tree.
+      - name: Verify the debug plumbing and stamp the build
+        run: |
+          dtb="out/sc7730se-${{ matrix.board }}.dtb"
+          grep -aq ramoops "$dtb" \
+            || { echo "::error::$dtb has no ramoops node"; exit 1; }
+          grep -q '^CONFIG_PSTORE_RAM=y' .config \
+            || { echo "::error::CONFIG_PSTORE_RAM=y missing from .config"; exit 1; }
+          {
+            echo "commit : $GITHUB_SHA"
+            echo "board  : ${{ matrix.board }}"
+            echo "run    : #$GITHUB_RUN_NUMBER"
+            echo "built  : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            grep -E '^CONFIG_(PSTORE|PSTORE_RAM|PSTORE_CONSOLE|SMP|ARM_APPENDED_DTB)=' .config || true
+          } > out/BUILD-INFO.txt
+          cat out/BUILD-INFO.txt
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -62,4 +84,5 @@ jobs:
             out/zImage-dtb
             out/*.dtb
             out/memdump
+            out/BUILD-INFO.txt
           if-no-files-found: error
