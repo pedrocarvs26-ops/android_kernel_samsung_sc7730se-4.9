@@ -70,6 +70,7 @@ arch/arm/boot/dts/sc7730se*.dts*        SoC dtsi + SM-T560 and SM-T561 board fil
 arch/arm/configs/sc7730se_defconfig     bring-up config
 port/build.sh                           one command cross build
 port/mkboot.sh                          boot.img + Odin tar.md5 packaging
+port/repackboot.py                      swaps the new kernel into a stock boot.img
 port/ci-build.yml                       GitHub Actions workflow template
 .devcontainer/devcontainer.json         Codespaces environment (Ubuntu 20.04 + GCC 9)
 docs/DEBUG-TWRP.md                      reading the kernel log without a UART jig
@@ -136,16 +137,22 @@ stock kernel back. No UART jig and no PC are required — see
 1. **Back up the stock boot partition first** (TWRP → Backup → *Boot*). Restoring that
    backup is how you undo a kernel that does not boot. Recovery lives in its own partition
    and is never touched by any of this.
-2. Extract the ramdisk from the boot image currently on the device and repackage it with the
-   new kernel:
+2. Repackage the new kernel **into the boot image that is on the tablet right now**, which
+   keeps the ramdisk, the vendor device tree area and every header field:
 
    ```sh
-   abootimg -x stock_boot.img          # -> bootimg.cfg, zImage, initrd.img
-   RAMDISK=initrd.img ./port/mkboot.sh # -> out/boot.img + out/boot_gtelwifi.tar.md5
+   # TWRP -> Backup -> Boot hands you the raw partition; copy it off the device
+   STOCK=stock_boot.img ./port/mkboot.sh
+   # -> out/boot.img, out/boot-nosmp.img, out/boot_gtelwifi.tar.md5
    ```
 
-   `port/mkboot.sh` uses the offsets recovered from the vendor kernel: base `0x80000000`,
-   kernel offset `0x8000`, ramdisk offset `0x800000`, tags offset `0x100`, page size 2048.
+   A stock SM-T560 image was dumped and inspected, and its header is *not* what the vendor
+   kernel's `Makefile.boot` suggests: the addresses are relative to zero (`kernel_addr`
+   `0x00008000`, `ramdisk_addr` `0x01000000`, `tags_addr` `0x00000100`, page size 2048, name
+   `sc8830`) and a **665 600 byte device tree area follows the ramdisk**. Rebuilding the
+   image from hand written `mkbootimg` offsets drops that area and moves the ramdisk, so
+   [`port/repackboot.py`](port/repackboot.py) copies the stock header page verbatim, keeps
+   the stock ramdisk and dt area byte for byte, and swaps only the kernel.
 3. Flash it from the tablet: copy `out/boot.img` over and use TWRP → Install → Install
    Image → *Boot*. (`out/boot_*.tar.md5` is the same image packed for Odin — AP slot, Auto
    Reboot off — if you would rather use a PC.)
@@ -163,8 +170,10 @@ stock kernel back. No UART jig and no PC are required — see
    [`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md) explains how to read the output and what an
    empty buffer means. A 619 kOhm jig on the headphone jack (115200 8N1,
    `earlycon=sprd_serial,0x70100000`) still works if you ever get one, but it is optional.
-5. First boot: add `nosmp` (or `maxcpus=1`) to the command line. SMP bring-up is the least
-   tested part of this port.
+5. First boot: flash `out/boot-nosmp.img` instead. It carries `nosmp maxcpus=1` both in the
+   boot image command line and in `/chosen/bootargs` of the appended DTB, because SMP
+   bring-up is the least tested part of this port. Move to `out/boot.img` once the log shows
+   it getting past that.
 6. Reaching `VFS: Unable to mount root fs` is the current success criterion: there is no
    storage driver yet.
 
