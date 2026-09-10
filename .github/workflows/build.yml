@@ -1,0 +1,49 @@
+# Builds the SC7730SE port for both tablets and uploads zImage + DTBs.
+#
+# The job runs inside an ubuntu:20.04 container on purpose: its default cross
+# toolchain is GCC 9, the newest GCC that still builds Linux 4.9 without the
+# -fno-common link errors introduced by GCC 10.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [gtelwifi, gtel3g]
+    steps:
+      - name: Install build dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            bc bison build-essential ca-certificates cpio device-tree-compiler \
+            flex gcc-arm-linux-gnueabihf git kmod libelf-dev libssl-dev lz4
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build zImage and DTBs
+        run: bash ./port/build.sh
+        env:
+          BOARD: ${{ matrix.board }}
+          ARCH: arm
+          CROSS_COMPILE: arm-linux-gnueabihf-
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.board }}
+          path: |
+            out/zImage
+            out/zImage-dtb
+            out/*.dtb
+          if-no-files-found: error
