@@ -131,6 +131,20 @@ else:
     if idx + dtb_len != len(kernel):
         print('warning: appended DTB does not end at EOF (%d != %d)'
               % (idx + dtb_len, len(kernel)))
+    # Guard against repacking a kernel built before the RAM console existed.
+    # Without the ramoops node nothing is ever written to the region, so every
+    # read of it comes back as zeros - which looks exactly like "the kernel
+    # never started" and sends you debugging the wrong thing. Cheap to check
+    # here, expensive to figure out on the device.
+    if b'ramoops' not in kernel[idx:]:
+        print()
+        print("WARNING: this kernel's appended DTB has no ramoops node, so it")
+        print('         sets up no RAM console and the TWRP debug path in')
+        print('         docs/DEBUG-TWRP.md cannot recover anything at all.')
+        print('         This usually means a stale artifact: check the commit')
+        print('         in out/BUILD-INFO.txt and rebuild from a tree that has')
+        print('         the reserved-memory ramoops node.')
+        print()
 
 if args.ramdisk:
     ramdisk = open(args.ramdisk, 'rb').read()
@@ -177,5 +191,10 @@ print('Flash it from TWRP: Install -> Install Image -> %s -> Boot.'
       % os.path.basename(args.out))
 print('After the boot attempt, warm reboot into TWRP (Volume Up + Home + Power)')
 print('and dump the RAM console, see docs/DEBUG-TWRP.md:')
-print('  dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin')
-print('  strings /sdcard/ramoops.bin | tail -n 200')
+print('  cp /sdcard/memdump /tmp/memdump && chmod +x /tmp/memdump')
+print('  /tmp/memdump')
+print('  tail -n 200 /sdcard/ramoops.bin.txt')
+print()
+print('dd cannot do that read: every DRAM address on this SoC is above 2 GiB,')
+print('which does not fit a 32 bit off_t, so dd stops with "Bad address".')
+print('memdump ships in the same CI artifact as the kernel.')
