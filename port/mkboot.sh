@@ -26,7 +26,12 @@ KERNEL="${KERNEL:-$OUT/zImage-dtb}"
 RAMDISK="${RAMDISK:-}"
 PAGESIZE="${PAGESIZE:-2048}"
 BASE="${BASE:-0x80000000}"
-CMDLINE="${CMDLINE:-console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend androidboot.hardware=sc8830}"
+# Without a UART jig the persistent RAM console is the only log we get, so make it
+# as informative as possible: initcall_debug names every initcall as it runs (the
+# last one printed is the one that hung), ignore_loglevel forces everything out,
+# and panic=0 halts instead of rebooting so nothing overwrites the buffer.
+# The buffer itself is declared in the board DTS; see docs/DEBUG-TWRP.md.
+CMDLINE="${CMDLINE:-console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend initcall_debug ignore_loglevel panic=0 androidboot.hardware=sc8830}"
 
 if [ ! -f "$KERNEL" ]; then
 	echo "error: $KERNEL not found, run ./port/build.sh first" >&2
@@ -82,13 +87,23 @@ echo
 ls -l "$OUT/boot.img" "$OUT/boot_${BOARD}.tar.md5"
 cat <<-EOF
 
-	== flashing
-	1. Back up the stock boot partition first. There is no download-mode
-	   recovery for a bad kernel other than reflashing stock firmware.
-	2. Power off, hold Volume Down + Home + Power to enter download mode.
-	3. Odin -> AP -> boot_${BOARD}.tar.md5, uncheck Auto Reboot, F. Reset Time.
-	4. Attach the UART jig (619 kOhm) and open the serial port at 115200 8N1
-	   before booting, otherwise you will see nothing at all.
+	== flashing from TWRP (no PC, no UART jig)
+	1. TWRP -> Backup -> Boot, before anything else. Restoring that backup is
+	   how you undo a kernel that does not boot; recovery is not touched.
+	2. Copy $OUT/boot.img to the tablet, then TWRP -> Install -> Install Image
+	   -> boot.img -> Boot partition.
+	3. Reboot -> System, wait ~30 s, then hold Volume Up + Home + Power to warm
+	   reboot back into TWRP. Do not cut the power: the log lives in DRAM and
+	   only survives a warm reset.
+	4. In the TWRP terminal (or adb shell), dump the RAM console:
+	     dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
+	     strings /sdcard/ramoops.bin | tail -n 200
+	   563968 is 0x89b00000 / 4096 and 256 pages is the 1 MiB region.
+	   How to read the result: docs/DEBUG-TWRP.md
 	5. First boot: add nosmp (or maxcpus=1) to the command line. SMP bring-up
 	   is the least tested part of this port.
+
+	== flashing with Odin (alternative)
+	Power off, hold Volume Down + Home + Power for download mode, then
+	Odin -> AP -> boot_${BOARD}.tar.md5, uncheck Auto Reboot, F. Reset Time.
 EOF

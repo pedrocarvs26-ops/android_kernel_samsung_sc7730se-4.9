@@ -72,6 +72,7 @@ port/build.sh                           one command cross build
 port/mkboot.sh                          boot.img + Odin tar.md5 packaging
 port/ci-build.yml                       GitHub Actions workflow template
 .devcontainer/devcontainer.json         Codespaces environment (Ubuntu 20.04 + GCC 9)
+docs/DEBUG-TWRP.md                      reading the kernel log without a UART jig
 docs/                                   hardware map, porting notes, status
 ```
 
@@ -128,8 +129,13 @@ boards inside an `ubuntu:20.04` container and uploads the images as artifacts. C
 
 ## Flashing (read the warnings first)
 
-1. **Back up the stock boot partition.** A kernel that does not boot can only be recovered
-   by reflashing firmware through download mode.
+TWRP is enough for the whole loop: back up boot, flash a test kernel, read the log, put the
+stock kernel back. No UART jig and no PC are required — see
+[`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md).
+
+1. **Back up the stock boot partition first** (TWRP → Backup → *Boot*). Restoring that
+   backup is how you undo a kernel that does not boot. Recovery lives in its own partition
+   and is never touched by any of this.
 2. Extract the ramdisk from the boot image currently on the device and repackage it with the
    new kernel:
 
@@ -140,11 +146,23 @@ boards inside an `ubuntu:20.04` container and uploads the images as artifacts. C
 
    `port/mkboot.sh` uses the offsets recovered from the vendor kernel: base `0x80000000`,
    kernel offset `0x8000`, ramdisk offset `0x800000`, tags offset `0x100`, page size 2048.
-3. Flash `out/boot_*.tar.md5` with Odin (AP slot, Auto Reboot off) or use `heimdall`.
-4. Get the serial console out of the headphone jack with a **619 kOhm** UART jig, 115200 8N1;
-   the kernel is configured with `earlycon=sprd_serial,0x70100000 console=ttyS1,115200n8`.
-   Attach it *before* powering on, because the interesting output happens in the first
-   milliseconds.
+3. Flash it from the tablet: copy `out/boot.img` over and use TWRP → Install → Install
+   Image → *Boot*. (`out/boot_*.tar.md5` is the same image packed for Odin — AP slot, Auto
+   Reboot off — if you would rather use a PC.)
+4. **Read the log from TWRP; no UART jig needed.** The kernel keeps its console in a RAM
+   region (`ramoops`, 1 MiB at `0x89b00000`) that the stock kernel behind TWRP never
+   touches, so after a boot attempt you warm reboot into recovery with **Volume Up + Home +
+   Power** and dump it:
+
+   ```sh
+   dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
+   strings /sdcard/ramoops.bin | tail -n 200
+   ```
+
+   Never cut the power in between — the log lives in DRAM and only survives a warm reset.
+   [`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md) explains how to read the output and what an
+   empty buffer means. A 619 kOhm jig on the headphone jack (115200 8N1,
+   `earlycon=sprd_serial,0x70100000`) still works if you ever get one, but it is optional.
 5. First boot: add `nosmp` (or `maxcpus=1`) to the command line. SMP bring-up is the least
    tested part of this port.
 6. Reaching `VFS: Unable to mount root fs` is the current success criterion: there is no

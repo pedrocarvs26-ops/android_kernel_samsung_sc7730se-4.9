@@ -203,6 +203,11 @@ Boot addresses from the vendor `Makefile.boot`:
   `OF_EARLYCON_DECLARE(sprd_serial, ...)`, so `earlycon=sprd_serial,0x70100000` works before
   clocks and pinctrl are up.
 * Physical access to the UART is through the headphone jack with a **619 kOhm** resistor jig.
+  That jig is **optional** for this port. The primary log channel is the persistent RAM
+  console (`ramoops`, 1 MiB at `0x89b00000`, carved out of the modem window), which is dumped
+  from TWRP with `dd if=/dev/mem` after a warm reboot — see [`DEBUG-TWRP.md`](DEBUG-TWRP.md).
+  The vendor 3.10 kernel that TWRP runs is built with `CONFIG_STRICT_DEVMEM` off and
+  `CONFIG_DEVKMEM=y`, which is what makes reading raw physical RAM from recovery possible.
 * The bootloader expects a Samsung `boot.img` containing `zImage` with an **appended DTB**
   (`CONFIG_ARM_APPENDED_DTB` + `CONFIG_ARM_ATAG_DTB_COMPAT`), flashed with Odin or heimdall.
 * Vendor kernel command line: `androidboot.hardware=sc8830`; vendor `CONFIG_HZ=100`,

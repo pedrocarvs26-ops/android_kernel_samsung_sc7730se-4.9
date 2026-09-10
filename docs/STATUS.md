@@ -17,7 +17,8 @@ needed to build is in the tree; nothing has to be downloaded or patched in.
 | Clockevent + clocksource + sched_clock (`drivers/clocksource/timer-sprd.c`) | done, **untested on hardware** |
 | Device trees for SM-T560 and SM-T561 | done |
 | Bring-up defconfig (`sc7730se_defconfig`) | done |
-| Serial console (upstream `sprd_serial`, no vendor code) | wired up, `ttyS1` assumption unverified |
+| Serial console (upstream `sprd_serial`, no vendor code) | wired up, `ttyS1` assumption unverified, UART jig optional |
+| Persistent RAM console (`pstore`/`ramoops` at `0x89b00000`) | done, **primary debug channel**, read from TWRP |
 | GIC, SCU, syscon nodes | done |
 | Clock controller driver | **not started** (fixed clocks only) |
 | pinctrl / GPIO / EIC | **not started** |
@@ -43,6 +44,24 @@ Build it yourself with GitHub Codespaces or Actions, see the README. Use a **GCC
 cross toolchain: GCC 10 switched to `-fno-common` and breaks Linux 4.9 with
 "multiple definition" link errors. `port/build.sh` detects this and warns.
 
+## How this port is debugged (no UART jig)
+
+There is no serial jig for this device, so the kernel writes its console into a 1 MiB
+`ramoops` region at `0x89b00000`. That address sits inside the modem carve-out, which the
+stock 3.10 kernel behind TWRP also reserves and never uses in recovery, so the log survives
+a warm reboot. After a boot attempt, hold Volume Up + Home + Power to get back into TWRP
+(never cut the power) and dump it:
+
+```sh
+dd if=/dev/mem bs=4096 skip=563968 count=256 of=/sdcard/ramoops.bin
+strings /sdcard/ramoops.bin | tail -n 200
+```
+
+`initcall_debug` and `ignore_loglevel` are in the default command line, and
+`CONFIG_PANIC_ON_OOPS` plus the hung-task and softlockup panics are enabled, so a hang turns
+into a recorded panic instead of a silent black screen. Full procedure and an interpretation
+table: [`DEBUG-TWRP.md`](DEBUG-TWRP.md).
+
 ## Most likely first failures
 
 In rough order of probability, so you know where to look:
@@ -52,9 +71,12 @@ In rough order of probability, so you know where to look:
 2. **`dtc` warnings** about unit addresses on `scu@12000000` / `syscnt@40230000`, or
    about the missing `#clock-cells` on nodes that reference clocks. Warnings are not
    fatal.
-3. **Silence on the serial port.** The console index is an assumption: the vendor kernel
-   does not use `ttyS*` names. If `ttyS1` is wrong, try `console=ttyS0`, and keep
-   `earlycon=sprd_serial,0x70100000` which does not depend on the index at all.
+3. **An empty `ramoops` dump.** No text and no `DBGC` header means the kernel never reached
+   `arch_initcall_sync`, so it died in the decompressor, in `head.S` or in the DTB handoff
+   and nothing was ever written to RAM. That narrows it down a lot; work through the
+   checklist in [`DEBUG-TWRP.md`](DEBUG-TWRP.md), starting with `nosmp` and the boot.img
+   offsets. (The `ttyS1` console index is a separate assumption that only matters if a UART
+   jig is ever attached; `earlycon=sprd_serial,0x70100000` never depends on it.)
 4. **Hang right after `smp_prepare_cpus`.** Boot with `nosmp` or `maxcpus=1` first; the
    power-up sequence in `platsmp.c` is transcribed from the vendor kernel but its delays
    and the SCU enable were never validated.
@@ -63,7 +85,7 @@ In rough order of probability, so you know where to look:
 
 ## Roadmap
 
-1. Serial console boot up to `VFS: Unable to mount root fs`.
+1. Boot far enough to record `VFS: Unable to mount root fs` in the RAM console.
 2. scx30g clock gates (`drivers/clk/sprd`) so peripherals beyond the UART can be clocked.
 3. pinctrl, GPIO and EIC.
 4. SC2723 PMIC and regulators (upstream `sc27xx` drivers).

@@ -1,5 +1,8 @@
 # Spreadtrum SC7730SE (Samsung SM-T560 / SM-T561) bring-up defconfig.
-# Deliberately small: serial console first, everything else comes later.
+# Deliberately small: get a log out of the device first, everything else later.
+# There is no UART jig in this setup, so the persistent RAM console (pstore/
+# ramoops, region declared in the board DTS) is the primary debug channel and
+# is read back from TWRP - see docs/DEBUG-TWRP.md.
 CONFIG_SYSVIPC=y
 CONFIG_POSIX_MQUEUE=y
 CONFIG_NO_HZ_IDLE=y
@@ -28,7 +31,11 @@ CONFIG_HIGHMEM=y
 CONFIG_CMA=y
 CONFIG_ARM_APPENDED_DTB=y
 CONFIG_ARM_ATAG_DTB_COMPAT=y
-CONFIG_CMDLINE="console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend"
+# initcall_debug names every initcall as it runs, so the last line in the RAM
+# console identifies a silent hang; ignore_loglevel forces everything out.
+CONFIG_CMDLINE="console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend initcall_debug ignore_loglevel"
+# append the above to whatever the Samsung bootloader passes
+CONFIG_CMDLINE_EXTEND=y
 CONFIG_VFP=y
 CONFIG_NEON=y
 CONFIG_KERNEL_MODE_NEON=y
@@ -55,9 +62,21 @@ CONFIG_MFD_SYSCON=y
 CONFIG_EXT4_FS=y
 CONFIG_TMPFS=y
 CONFIG_TMPFS_POSIX_ACL=y
+# persistent RAM console: the only way to see anything without a UART jig
+CONFIG_PSTORE=y
+CONFIG_PSTORE_CONSOLE=y
+CONFIG_PSTORE_RAM=y
 CONFIG_PRINTK_TIME=y
 CONFIG_DYNAMIC_DEBUG=y
 CONFIG_MAGIC_SYSRQ=y
 CONFIG_DEBUG_FS=y
+# turn silent hangs into something the RAM console actually records
+CONFIG_PANIC_ON_OOPS=y
 CONFIG_DETECT_HUNG_TASK=y
+CONFIG_DEFAULT_HUNG_TASK_TIMEOUT=60
+CONFIG_BOOTPARAM_HUNG_TASK_PANIC=y
+CONFIG_LOCKUP_DETECTOR=y
+CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC=y
+# a bad boot is diagnosed by dumping RAM from recovery, so keep /dev/mem open
+# CONFIG_STRICT_DEVMEM is not set
 # CONFIG_CRYPTO_ANSI_CPRNG is not set

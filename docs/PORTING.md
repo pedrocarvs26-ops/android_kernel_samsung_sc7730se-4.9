@@ -70,8 +70,10 @@ No other upstream file is modified, which keeps the port easy to review and reba
 
 * **Nothing here has been run on hardware.** The port compiles; boot is unproven.
 * **Console index.** `console=ttyS1` assumes `sprd_serial` enumerates the enabled ports in DT
-  order with UART0 first. If the console is silent, try `ttyS0`; `earlycon` is address-based
-  and therefore reliable.
+  order with UART0 first. If a serial console is ever attached and stays silent, try `ttyS0`;
+  `earlycon` is address-based and therefore reliable. This only affects UART output — the
+  persistent RAM console (`ramoops` at `0x89b00000`, dumped from TWRP) records printk no
+  matter which index the UART ends up with.
 * **No clock driver.** Only fixed clocks (`ext_26m`, `ext_32k`, `clk_48m`) are described. The
   real `scx30g` gate/PLL tree is not implemented, so anything beyond the UART and the timers
   will not get a clock.
@@ -82,13 +84,16 @@ No other upstream file is modified, which keeps the port easy to review and reba
 * **Bootloader watchdog.** If the kernel stalls early the device may reset before any output
   appears; that is not necessarily a kernel hang.
 * **Memory carve-outs** are copied from the vendor DT; the modem region must stay reserved even
-  though no modem driver exists.
+  though no modem driver exists. Its top 1 MiB (`0x89b00000`) now holds the `ramoops` RAM
+  console, deliberately: the stock kernel behind TWRP reserves the same window and never loads
+  a modem in recovery, which is exactly what makes the log survive and stay readable.
 
 ## 6. Roadmap
 
-1. **Milestone 1 — serial console.** Reaching
-   `Kernel panic - not syncing: VFS: Unable to mount root fs` over UART means the CPU, MMU,
-   GIC, timers and console all work. That is the real target of this stage.
+1. **Milestone 1 — a readable log.** Reaching
+   `Kernel panic - not syncing: VFS: Unable to mount root fs` means the CPU, MMU, GIC, timers
+   and printk all work. That is the real target of this stage, and it needs no UART jig: the
+   line shows up in the `ramoops` buffer dumped from TWRP (see [`DEBUG-TWRP.md`](DEBUG-TWRP.md)).
 2. **Clock driver** for the `scx30g` gates and PLLs (`drivers/clk/sprd/` style, backported).
 3. **Pinctrl + GPIO/EIC**.
 4. **SC2723 PMIC** (ADI transport at `0x40038800`) and its regulators.
@@ -109,5 +114,7 @@ make -j"$(nproc)" zImage dtbs
 cat arch/arm/boot/zImage arch/arm/boot/dts/sc7730se-gtelwifi.dtb > zImage-dtb
 ```
 
-Then repack `zImage-dtb` into the stock `boot.img` (same base, page size and ramdisk) and
-flash with Odin. Watch the UART at 115200 8N1 while the device boots.
+Then repack `zImage-dtb` into the stock `boot.img` (same base, page size and ramdisk) with
+`port/mkboot.sh`, and flash it from TWRP (Install → Install Image → Boot). After the boot
+attempt, warm reboot into TWRP and dump the RAM console with `dd if=/dev/mem`; the whole
+procedure and how to interpret it are in [`DEBUG-TWRP.md`](DEBUG-TWRP.md).

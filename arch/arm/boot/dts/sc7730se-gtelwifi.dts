@@ -38,10 +38,39 @@
 			no-map;
 		};
 
-		/* CP (modem) firmware window, kept even on Wi-Fi only models */
+		/*
+		 * CP (modem) firmware window, kept even on Wi-Fi only models.
+		 * The top 1 MiB is carved out for the RAM console below, so this
+		 * window ends at 0x89b00000 instead of 0x89c00000.
+		 */
 		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1c00000>;
+			reg = <0x88000000 0x1b00000>;
 			no-map;
+		};
+
+		/*
+		 * Persistent kernel log, read back from TWRP after a failed boot.
+		 * This is the only debug channel on a device without a UART jig,
+		 * see docs/DEBUG-TWRP.md.
+		 *
+		 * It sits inside the modem window on purpose: the stock 3.10
+		 * kernel that TWRP runs reserves that same window and never loads
+		 * a modem while in recovery, so the buffer survives the warm
+		 * reboot untouched. The framebuffer and ION regions further up are
+		 * not safe - TWRP draws its UI in one and allocates from the other.
+		 *
+		 * record-size = <0> leaves the console zone as the only zone, so
+		 * it starts at the base of the region and stays plain text: 4.9
+		 * stores dmesg records zlib-compressed, but never the console.
+		 * The 12-byte header (sig 0x43474244 "DBGC", start, size) is the
+		 * same layout Samsung's own sec_log uses on this SoC.
+		 */
+		ramoops@89b00000 {
+			compatible = "ramoops";
+			reg = <0x89b00000 0x100000>;
+			console-size = <0x100000>;
+			record-size = <0>;
+			ecc-size = <0>;
 		};
 
 		/* framebuffer handed over by the bootloader */
