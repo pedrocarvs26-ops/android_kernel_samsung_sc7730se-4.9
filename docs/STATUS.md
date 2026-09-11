@@ -18,7 +18,8 @@ needed to build is in the tree; nothing has to be downloaded or patched in.
 | Device trees for SM-T560 and SM-T561 | done |
 | Bring-up defconfig (`sc7730se_defconfig`) | done |
 | Serial console (upstream `sprd_serial`, no vendor code) | wired up, `ttyS1` assumption unverified, UART jig optional |
-| Persistent RAM console (`pstore`/`ramoops` at `0x86b80000`) | done, **primary debug channel**, read from TWRP |
+| On-screen console (`simplefb` + `fbcon` on the bootloader's framebuffer) | done, **primary debug channel**, needs no jig and no memory reads |
+| Persistent RAM console (`pstore`/`ramoops` at `0x89b00000`) | done, read from TWRP with `tools/memdump` |
 | GIC, SCU, syscon nodes | done |
 | Clock controller driver | **not started** (fixed clocks only) |
 | pinctrl / GPIO / EIC | **not started** |
@@ -46,23 +47,34 @@ cross toolchain: GCC 10 switched to `-fno-common` and breaks Linux 4.9 with
 
 ## How this port is debugged (no UART jig)
 
-There is no serial jig for this device, so the kernel writes its console into a 384 KiB
-`ramoops` region at `0x86b80000`. That address comes from the device itself: the stock
-command line, recovered out of DRAM from recovery, contains
-`sec_log=0xffe00@0x86b00000`, so the bootloader keeps `0x86b00000..0x86c00000` out of the
-usable memory map on every boot, recovery included. Our zone sits in the upper half of
-that window, because the recovery kernel re-initialises its own `sec_log` at the base.
+There is no serial jig for this device, so there are two channels.
 
-The first attempt used `0x89b00000`, at the top of the modem window. A dump from the
-device came back full of live SIPC ring buffer names, so that memory belongs to the CP;
-the board device trees now reserve the modem window all the way to `0x89c00000`.
+**The screen.** The bootloader leaves the panel running and hands over its framebuffer
+(`lcd_base=0x9ea44000`). `simple-framebuffer` + `fbcon` print the kernel log straight onto
+the tablet, so a failed boot can be photographed. Nothing has to be read out of physical
+memory, which matters a great deal here: raw `/dev/mem` reads have reset this device
+twice.
+
+**The RAM console.** `ramoops`, 1 MiB at `0x89b00000`, dumped from TWRP after a warm
+reboot. Picking that address took three attempts:
+
+| attempt | result |
+| --- | --- |
+| `0x89b00000`, top of the modem window | a 1 MiB read **succeeded**, and returned stale CP firmware strings |
+| `0x86b80000`, inside the bootloader's `sec_log=0xffe00@0x86b00000` window | reading it from recovery **resets the tablet instantly**: the recovery kernel carves that window out of its own memory map, so the read faults in kernel context and the vendor kernel is built with `panic_on_oops` |
+| back to `0x89b00000` | the only region that is both kept out of the recovery kernel's allocator and still inside its linear map |
+
+What is still open is whether the bootloader reloads CP firmware into the modem window on
+a *recovery* boot, which would wipe the log before it could be read. `memdump --mark`, a
+reboot back into recovery, and `memdump --check` settle that on the device without
+flashing anything.
 
 After a boot attempt, hold Volume Up + Home + Power to get back into TWRP (never cut the
 power) and dump it:
 
 ```sh
 chmod +x /sdcard/memdump
-/sdcard/memdump                     # 0x86b80000 + 0x60000 -> /sdcard/ramoops.bin
+/sdcard/memdump                     # 0x89b00000 + 0x100000 -> /sdcard/ramoops.bin
 tail -n 200 /sdcard/ramoops.bin.txt
 ```
 

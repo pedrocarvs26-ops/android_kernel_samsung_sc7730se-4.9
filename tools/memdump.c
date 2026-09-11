@@ -15,44 +15,64 @@
  *     that is the "dd: /dev/mem: Bad address" message.
  *   - even with a correct 64 bit seek, read() on /dev/mem must pass
  *     valid_phys_addr_range() (arch/arm/mm/mmap.c), which rejects anything
- *     past the end of lowmem or inside a carved out region.
+ *     past the end of lowmem.
  *
  * memdump does the seek with pread() on a _FILE_OFFSET_BITS=64 build, and if
- * the kernel still refuses the read it falls back to mmap(), which only has to
- * pass valid_mmap_phys_addr_range() - that one accepts any address inside the
- * physical address space.
+ * the kernel refuses the read it falls back to mmap(), which only has to pass
+ * valid_mmap_phys_addr_range(). It also writes a plain text version of the
+ * dump next to the binary, so no `strings` binary is needed in the recovery.
  *
- * It also writes a plain text version of the dump next to the binary, so no
- * `strings` binary is needed in the recovery.
+ * Two ways this tool has already killed the tablet
+ * ------------------------------------------------
+ * Both were reported from the device, and both reset it instantly with no
+ * output at all:
+ *
+ *   1. --scan, which walked 0x80000000..0xa0000000 a megabyte at a time.
+ *      Parts of that range are TrustZone and modem carve-outs; a non-secure
+ *      read aborts on the bus and the SoC turns the abort into a reboot.
+ *   2. reading the bootloader's stock RAM console window,
+ *      0x86b00000..0x86c00000 ("sec_log=0xffe00@0x86b00000" on the stock
+ *      command line). The recovery kernel carves that window out of its own
+ *      memory map, so the /dev/mem read() path resolves it to a virtual
+ *      address that is not mapped, faults in kernel context, and the Samsung
+ *      kernel is built with panic_on_oops: instant reset. However well the
+ *      bootloader protects that window, it is useless to us if reading it
+ *      kills the only shell we have.
+ *
+ * What is known to work
+ * ---------------------
+ * A 1 MiB pread at 0x89b00000 succeeded and came back with data (CP firmware
+ * strings). The modem window, 0x88000000..0x89c00000, is reserved by the
+ * stock kernel but still inside its linear map, so it is readable from
+ * recovery - which is exactly why the RAM console lives at the top of it.
+ * Addresses outside that proven-safe window now need --force, every read is
+ * announced and flushed before it happens, and there is no blind scan.
  *
  * Build
  * -----
  *     sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
  *     arm-linux-gnueabihf-gcc -static -O2 -Wall -o memdump tools/memdump.c
  *
- * libc6-dev-armhf-cross is not optional. The kernel is freestanding and builds
- * with the compiler alone, but this is ordinary userspace code: without the
- * armhf libc headers the Debian cross compiler ends its include search in the
- * host /usr/include, picks up the x86_64 <errno.h> and stops at
+ * libc6-dev-armhf-cross is not optional. The kernel is freestanding and
+ * builds with the compiler alone, but this is ordinary userspace code:
+ * without the armhf libc headers the Debian cross compiler ends its include
+ * search in the host /usr/include, picks up the x86_64 <errno.h> and stops at
  * "sys/cdefs.h: No such file or directory". The package also carries the
  * libc.a that -static needs.
  *
  * Use (TWRP terminal, right after a warm reboot)
  * ----------------------------------------------
- *     ./memdump                    # 384 KiB at 0x86b80000 -> /sdcard/ramoops.bin
- *     ./memdump 0x86b80000 0x60000 /sdcard/ramoops.bin
- *     ./memdump --probe            # 32 bytes at each known log address
- *     ./memdump --seclog           # the whole bootloader sec_log window
+ *     ./memdump                      # 1 MiB at 0x89b00000 -> /sdcard/ramoops.bin
+ *     ./memdump 0x89b00000 0x100000 /sdcard/ramoops.bin
+ *     ./memdump --probe              # 32 bytes at each known log address
+ *     ./memdump --mark               # write a marker into the zone
+ *     ./memdump --check              # is the marker still there after a reboot?
  *
- * There is no blind scan any more
- * -------------------------------
- * The first version had a --scan mode that walked 0x80000000..0xa0000000 a
- * megabyte at a time. On the device it reset the tablet on the spot, before
- * printing a single hit. That is expected in hindsight: parts of that range
- * are TrustZone carve-outs and modem windows, a non-secure read of those
- * aborts on the bus, and the SoC turns the abort into an immediate reboot.
- * --probe replaces it and only touches addresses that can legitimately hold a
- * log header, 32 bytes each.
+ * --mark/--check answer the one open question about this region: the
+ * bootloader loads CP firmware into the modem window, and if it does that on
+ * recovery boots as well, it would wipe our log before it can be read. Mark
+ * it, reboot straight back into recovery, check it. No kernel flashing
+ * needed, and nothing else in the system uses that megabyte in recovery.
  */
 
 #define _FILE_OFFSET_BITS 64
@@ -70,35 +90,76 @@
 #include <unistd.h>
 
 /*
- * Where the RAM console lives, see docs/DEBUG-TWRP.md. The bootloader passes
- * "sec_log=0xffe00@0x86b00000" to the stock kernel, so it keeps that megabyte
- * out of the usable memory map on every boot, recovery included. Our ramoops
- * zone sits in the upper half of that window, out of reach of the recovery
- * kernel's own sec_log writes, which start at the base.
+ * The RAM console: the top megabyte of the modem window. Reserved by both
+ * kernels, readable from recovery, see docs/DEBUG-TWRP.md.
  */
-#define DEFAULT_ADDR 0x86b80000ULL
-#define DEFAULT_SIZE 0x60000ULL
+#define DEFAULT_ADDR 0x89b00000ULL
+#define DEFAULT_SIZE 0x100000ULL
 #define DEFAULT_OUT "/sdcard/ramoops.bin"
 
-/* The window the bootloader reserves, and the vendor layout inside it. */
+/* Proven readable from the TWRP kernel: the CP (modem) carve-out. */
+#define SAFE_LO 0x88000000ULL
+#define SAFE_HI 0x89c00000ULL
+
+/*
+ * The bootloader's stock RAM console window. Listed so --probe can name it,
+ * never read: reading it from recovery resets the device (see above).
+ */
 #define SECLOG_BASE 0x86b00000ULL
 #define SECLOG_SIZE 0xffe00ULL
-/* struct sec_log_buffer {sig,start,size,from,to}, rounded up to 4 bytes */
-#define SECLOG_HDR 24
 
 /* PERSISTENT_RAM_SIG from fs/pstore/ram_core.c, 'DBGC' */
 #define RAMOOPS_SIG 0x43474244U
 /* Samsung sec_log / ram_console magic seen in the 3.10 vendor tree, 'LOGM' */
 #define SEC_LOG_MAGIC 0x4d474f4cU
+/* --mark writes this, --check looks for it, 'MARK' */
+#define MARK_MAGIC 0x4b52414dU
+
+static const char mark_text[] = "MARK memdump persistence test\n";
 
 static int mem_fd = -1;
 static long page_size = 4096;
 static int used_mmap = 0;
+static int force = 0;
 
-/* Read len bytes of physical memory. Tries pread() first, then mmap(). */
+/*
+ * Refuse anything outside the window we have actually read from this device.
+ * Every fatal accident so far was a read of an address nobody had checked.
+ */
+static int addr_ok(uint64_t addr, uint64_t size)
+{
+	if (force)
+		return 1;
+	if (addr >= SAFE_LO && size <= SAFE_HI - SAFE_LO &&
+	    addr + size <= SAFE_HI)
+		return 1;
+
+	fprintf(stderr,
+		"memdump: refusing to touch 0x%08llx + 0x%llx\n"
+		"         Only 0x%08llx..0x%08llx, the modem window where the\n"
+		"         RAM console lives, is known to be readable from the\n"
+		"         recovery kernel. Reading the bootloader's sec_log\n"
+		"         window at 0x%08llx, or anything TrustZone owns, resets\n"
+		"         the tablet on the spot with no output.\n"
+		"         Pass --force only if you are ready for that.\n",
+		(unsigned long long)addr, (unsigned long long)size,
+		(unsigned long long)SAFE_LO, (unsigned long long)SAFE_HI,
+		(unsigned long long)SECLOG_BASE);
+	return 0;
+}
+
+/*
+ * Read len bytes of physical memory: pread() first, then mmap().
+ * The announcement is printed and flushed *before* the access, so that if the
+ * device resets, the last line on the screen says how far we got.
+ */
 static int read_phys(uint64_t phys, unsigned char *buf, size_t len)
 {
 	size_t done = 0;
+
+	printf("reading  : 0x%08llx + 0x%llx\n",
+	       (unsigned long long)phys, (unsigned long long)len);
+	fflush(stdout);
 
 	if (!used_mmap) {
 		while (done < len) {
@@ -137,13 +198,58 @@ static int read_phys(uint64_t phys, unsigned char *buf, size_t len)
 	}
 }
 
+/* Same idea in the other direction, used only by --mark. */
+static int write_phys(uint64_t phys, const unsigned char *buf, size_t len)
+{
+	ssize_t n;
+
+	printf("writing  : 0x%08llx + 0x%llx\n",
+	       (unsigned long long)phys, (unsigned long long)len);
+	fflush(stdout);
+
+	n = pwrite(mem_fd, buf, len, (off_t)phys);
+	if (n == (ssize_t)len)
+		return 0;
+
+	{
+		uint64_t base = phys & ~((uint64_t)page_size - 1);
+		size_t delta = (size_t)(phys - base);
+		size_t maplen = len + delta;
+		void *p;
+
+		maplen = (maplen + (size_t)page_size - 1) &
+			 ~((size_t)page_size - 1);
+		p = mmap(NULL, maplen, PROT_READ | PROT_WRITE, MAP_SHARED,
+			 mem_fd, (off_t)base);
+		if (p == MAP_FAILED)
+			return -1;
+		memcpy((unsigned char *)p + delta, buf, len);
+		msync(p, maplen, MS_SYNC);
+		munmap(p, maplen);
+		return 0;
+	}
+}
+
 static uint32_t le32(const unsigned char *p)
 {
 	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
 	       ((uint32_t)p[3] << 24);
 }
 
-/* Write the printable runs of the dump to <out>.txt and echo the tail. */
+static const char *sig_name(uint32_t sig)
+{
+	if (sig == RAMOOPS_SIG)
+		return "'DBGC' ramoops header";
+	if (sig == SEC_LOG_MAGIC)
+		return "'LOGM' vendor sec_log";
+	if (sig == MARK_MAGIC)
+		return "'MARK' memdump marker";
+	if (sig == 0)
+		return "zero";
+	return "unknown";
+}
+
+/* Write the printable runs of the dump to <out>.txt. */
 static void write_text(const char *out, const unsigned char *buf, size_t len)
 {
 	char path[512];
@@ -182,11 +288,11 @@ static void write_text(const char *out, const unsigned char *buf, size_t len)
 	       (unsigned long)kept);
 }
 
-/* Read the bootloader's "sec_log=SIZE@BASE", so we probe the real window. */
+/* Report the bootloader's "sec_log=SIZE@BASE" without going near it. */
 static int parse_cmdline_seclog(uint64_t *base, uint64_t *size)
 {
 	char line[4096];
-	char *p;
+	char *p, *at;
 	FILE *f = fopen("/proc/cmdline", "r");
 
 	if (!f)
@@ -200,151 +306,143 @@ static int parse_cmdline_seclog(uint64_t *base, uint64_t *size)
 	p = strstr(line, "sec_log=");
 	if (!p)
 		return -1;
-	p += 8;
-	*size = strtoull(p, &p, 0);
-	if (*p == 'K' || *p == 'k') {
-		*size *= 1024;
-		p++;
-	} else if (*p == 'M' || *p == 'm') {
-		*size *= 1024 * 1024;
-		p++;
-	}
-	if (*p != '@')
+	p += sizeof("sec_log=") - 1;
+	at = strchr(p, '@');
+	if (!at)
 		return -1;
-	*base = strtoull(p + 1, NULL, 0);
-	return (*base && *size) ? 0 : -1;
-}
-
-static const char *sig_name(uint32_t sig)
-{
-	if (sig == RAMOOPS_SIG)
-		return "'DBGC' ramoops/sec_log header";
-	if (sig == SEC_LOG_MAGIC)
-		return "'LOGM' vendor sec_log magic";
-	if (!sig)
-		return "zeros";
-	return "no log header";
+	*size = strtoull(p, NULL, 0);
+	*base = strtoull(at + 1, NULL, 0);
+	return 0;
 }
 
 /*
- * Read 32 bytes at each address that can legitimately hold a log header.
- * Never walk memory blindly, see the note at the top of this file.
+ * Look at 32 bytes in each place a log header could legitimately be, all of
+ * them inside the window this device has already let us read.
  */
 static int do_probe(void)
 {
 	struct {
 		uint64_t addr;
 		const char *what;
-	} cand[5];
+	} cand[3];
 	uint64_t base = 0, size = 0;
 	unsigned char b[32];
 	int i, n = 0, hits = 0;
 
 	cand[n].addr = DEFAULT_ADDR;
-	cand[n++].what = "our ramoops zone";
-	cand[n].addr = SECLOG_BASE;
-	cand[n++].what = "sec_log window, vendor header";
-	cand[n].addr = SECLOG_BASE + SECLOG_HDR;
-	cand[n++].what = "sec_log window, first text byte";
-	cand[n].addr = 0x89b00000ULL;
-	cand[n++].what = "old ramoops address (modem memory)";
+	cand[n++].what = "our RAM console zone";
+	cand[n].addr = DEFAULT_ADDR + 0x1000;
+	cand[n++].what = "one page in, in case the zone shifted";
+	cand[n].addr = SAFE_LO;
+	cand[n++].what = "modem window base (CP firmware if loaded)";
 
-	if (parse_cmdline_seclog(&base, &size) == 0) {
-		printf("cmdline  : sec_log=0x%llx@0x%llx\n",
+	if (parse_cmdline_seclog(&base, &size) == 0)
+		printf("cmdline  : sec_log=0x%llx@0x%llx "
+		       "(not read: reading it resets the device)\n",
 		       (unsigned long long)size, (unsigned long long)base);
-		if (base != SECLOG_BASE) {
-			cand[n].addr = base;
-			cand[n++].what = "sec_log base from /proc/cmdline";
-		}
-	} else {
+	else
 		printf("cmdline  : no sec_log= parameter\n");
-	}
 
-	printf("address     word        meaning                        region\n");
 	for (i = 0; i < n; i++) {
 		memset(b, 0, sizeof(b));
 		if (read_phys(cand[i].addr, b, sizeof(b)) < 0) {
-			printf("0x%08llx  unreadable  %-30s %s\n",
+			printf("0x%08llx  unreadable  %-24s %s\n",
 			       (unsigned long long)cand[i].addr,
 			       strerror(errno), cand[i].what);
 			continue;
 		}
-		printf("0x%08llx  0x%08x  %-30s %s\n",
+		printf("0x%08llx  0x%08x  %-24s %s\n",
 		       (unsigned long long)cand[i].addr, le32(b),
 		       sig_name(le32(b)), cand[i].what);
 		if (le32(b) == RAMOOPS_SIG || le32(b) == SEC_LOG_MAGIC)
 			hits++;
 	}
-	printf("%d header(s) found\n", hits);
+	printf("%d log header(s) found\n", hits);
 	return hits ? 0 : 2;
 }
 
 /*
- * Dump the whole window the bootloader reserves for the stock RAM console and
- * decode the vendor layout, from arch/arm/mach-sc/sec_log.c in the 3.10 tree:
+ * --mark / --check: does this region survive a reboot into recovery?
  *
- *   base + 0                struct sec_log_buffer {sig,start,size,from,to}
- *   base + 24               text, sec_logbuf_size bytes
- *   base + 24 + size        sec_log_ptr, the write index
- *   base + 24 + size + 4    sec_log_mag, 'LOGM' once initialised
- *
- * Running this from a normal TWRP session is the cheap way to prove the window
- * is real: the recovery kernel's own boot log should be sitting in it.
+ * The bootloader loads CP firmware somewhere in 0x88000000..0x89c00000. If it
+ * does that on recovery boots too, the RAM console is wiped before we can
+ * read it, and no kernel change would ever fix that. Marking the zone and
+ * rebooting straight back into TWRP settles it in two minutes.
  */
-static int do_seclog(const char *out)
+static int do_mark(uint64_t addr)
 {
-	uint64_t base = SECLOG_BASE, size = SECLOG_SIZE, total;
-	unsigned char *buf;
-	uint32_t mag;
-	FILE *f;
+	unsigned char b[32];
 
-	if (parse_cmdline_seclog(&base, &size) == 0)
-		printf("cmdline  : sec_log=0x%llx@0x%llx\n",
-		       (unsigned long long)size, (unsigned long long)base);
-	else
-		printf("cmdline  : no sec_log=, using 0x%llx@0x%llx\n",
-		       (unsigned long long)size, (unsigned long long)base);
+	memset(b, 0, sizeof(b));
+	b[0] = (unsigned char)(MARK_MAGIC & 0xff);
+	b[1] = (unsigned char)((MARK_MAGIC >> 8) & 0xff);
+	b[2] = (unsigned char)((MARK_MAGIC >> 16) & 0xff);
+	b[3] = (unsigned char)((MARK_MAGIC >> 24) & 0xff);
+	memcpy(b + 4, mark_text, sizeof(mark_text) - 1);
 
-	total = SECLOG_HDR + size + 8;
-	buf = malloc((size_t)total);
-	if (!buf) {
-		fprintf(stderr, "memdump: cannot allocate %llu bytes\n",
-			(unsigned long long)total);
-		return 1;
-	}
-	memset(buf, 0, (size_t)total);
-	if (read_phys(base, buf, (size_t)total) < 0) {
-		fprintf(stderr, "memdump: reading 0x%08llx: %s\n",
-			(unsigned long long)base, strerror(errno));
-		free(buf);
+	if (write_phys(addr, b, sizeof(b)) < 0) {
+		fprintf(stderr, "memdump: writing 0x%08llx: %s\n",
+			(unsigned long long)addr, strerror(errno));
 		return 1;
 	}
 
-	f = fopen(out, "wb");
-	if (!f) {
-		fprintf(stderr, "memdump: %s: %s\n", out, strerror(errno));
-		free(buf);
+	memset(b, 0, sizeof(b));
+	if (read_phys(addr, b, sizeof(b)) < 0 || le32(b) != MARK_MAGIC) {
+		fprintf(stderr, "memdump: the marker did not stick at 0x%08llx\n",
+			(unsigned long long)addr);
 		return 1;
 	}
-	fwrite(buf, 1, (size_t)total, f);
-	fclose(f);
 
-	mag = le32(buf + (size_t)(SECLOG_HDR + size) + 4);
-	printf("read     : 0x%08llx + 0x%llx via %s\n",
-	       (unsigned long long)base, (unsigned long long)total,
-	       used_mmap ? "mmap" : "pread");
-	printf("binary   : %s\n", out);
-	printf("header   : sig 0x%08x start %u size %u from %u to %u\n",
-	       le32(buf), le32(buf + 4), le32(buf + 8), le32(buf + 12),
-	       le32(buf + 16));
-	printf("write ptr: %u\n", le32(buf + (size_t)(SECLOG_HDR + size)));
-	printf("magic    : 0x%08x %s\n", mag,
-	       mag == SEC_LOG_MAGIC ?
-	       "('LOGM': the recovery kernel owns this buffer)" :
-	       "(not initialised by this kernel)");
-	write_text(out, buf, (size_t)total);
-	free(buf);
+	printf("marker   : written at 0x%08llx\n",
+	       (unsigned long long)addr);
+	printf("next     : reboot straight back into recovery (TWRP -> Reboot\n"
+	       "           -> Recovery), then run ./memdump --check\n");
 	return 0;
+}
+
+static int do_check(uint64_t addr)
+{
+	unsigned char b[32];
+	uint32_t sig;
+
+	memset(b, 0, sizeof(b));
+	if (read_phys(addr, b, sizeof(b)) < 0) {
+		fprintf(stderr, "memdump: reading 0x%08llx: %s\n",
+			(unsigned long long)addr, strerror(errno));
+		return 1;
+	}
+	sig = le32(b);
+	printf("word     : 0x%08x %s\n", sig, sig_name(sig));
+
+	if (sig == MARK_MAGIC) {
+		printf("result   : marker survived. Nothing rewrites this zone\n"
+		       "           across a reboot, so the RAM console will be\n"
+		       "           readable here after a failed boot.\n");
+		return 0;
+	}
+	if (sig == RAMOOPS_SIG) {
+		printf("result   : a ramoops header is here instead - the kernel\n"
+		       "           got far enough to claim the zone. Dump it with\n"
+		       "           ./memdump\n");
+		return 0;
+	}
+	printf("result   : marker gone. Something (most likely the bootloader\n"
+	       "           reloading CP firmware) rewrites this zone on every\n"
+	       "           boot, so no RAM console here can survive.\n");
+	return 2;
+}
+
+static void usage(void)
+{
+	printf("usage: memdump [<phys_addr> [<size> [outfile]]]\n"
+	       "       memdump --probe    32 bytes at each known log address\n"
+	       "       memdump --mark     write a marker into the zone\n"
+	       "       memdump --check    look for the marker after a reboot\n"
+	       "       memdump --force    allow addresses outside 0x%08llx..0x%08llx\n"
+	       "default: 0x%08llx 0x%llx %s\n",
+	       (unsigned long long)SAFE_LO, (unsigned long long)SAFE_HI,
+	       (unsigned long long)DEFAULT_ADDR,
+	       (unsigned long long)DEFAULT_SIZE, DEFAULT_OUT);
 }
 
 int main(int argc, char **argv)
@@ -354,41 +452,65 @@ int main(int argc, char **argv)
 	const char *out = DEFAULT_OUT;
 	unsigned char *buf;
 	FILE *f;
-	int probe = 0, seclog = 0;
+	int probe = 0, mark = 0, check = 0;
+	int i, pos = 0;
 
 	page_size = sysconf(_SC_PAGESIZE);
 	if (page_size <= 0)
 		page_size = 4096;
 
-	if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-		printf("usage: memdump [<phys_addr> <size> [outfile]]\n"
-		       "       memdump --probe            known log addresses only\n"
-		       "       memdump --seclog [outfile] the bootloader sec_log window\n"
-		       "default: 0x%08llx 0x%llx %s\n",
-		       (unsigned long long)DEFAULT_ADDR,
-		       (unsigned long long)DEFAULT_SIZE, DEFAULT_OUT);
-		return 0;
-	}
-	if (argc > 1 && !strcmp(argv[1], "--scan")) {
-		fprintf(stderr,
-			"memdump: --scan is gone. Walking 0x80000000..0xa0000000\n"
-			"         blindly crosses TrustZone and modem carve-outs, and\n"
-			"         the bus abort that follows resets the tablet before\n"
-			"         anything can be printed. Use --probe or --seclog.\n");
-		return 1;
-	}
-	if (argc > 1 && !strcmp(argv[1], "--probe"))
-		probe = 1;
-	else if (argc > 1 && !strcmp(argv[1], "--seclog"))
-		seclog = 1;
-	else if (argc >= 3) {
-		addr = strtoull(argv[1], NULL, 0);
-		size = strtoull(argv[2], NULL, 0);
-		if (argc >= 4)
-			out = argv[3];
+	for (i = 1; i < argc; i++) {
+		const char *a = argv[i];
+
+		if (!strcmp(a, "-h") || !strcmp(a, "--help")) {
+			usage();
+			return 0;
+		}
+		if (!strcmp(a, "--force")) {
+			force = 1;
+		} else if (!strcmp(a, "--probe")) {
+			probe = 1;
+		} else if (!strcmp(a, "--mark")) {
+			mark = 1;
+		} else if (!strcmp(a, "--check")) {
+			check = 1;
+		} else if (!strcmp(a, "--scan")) {
+			fprintf(stderr,
+				"memdump: --scan is gone. Walking DRAM blindly\n"
+				"         crosses TrustZone and modem carve-outs,\n"
+				"         and the bus abort that follows resets the\n"
+				"         tablet before anything can be printed.\n"
+				"         Use --probe.\n");
+			return 1;
+		} else if (!strcmp(a, "--seclog")) {
+			fprintf(stderr,
+				"memdump: --seclog is gone. Reading the\n"
+				"         bootloader's window at 0x%08llx from\n"
+				"         recovery resets the device: that memory is\n"
+				"         carved out of the recovery kernel's own\n"
+				"         map, so the read faults in kernel context\n"
+				"         and panic_on_oops reboots the tablet.\n",
+				(unsigned long long)SECLOG_BASE);
+			return 1;
+		} else if (a[0] == '-') {
+			fprintf(stderr, "memdump: unknown option %s\n", a);
+			usage();
+			return 1;
+		} else {
+			if (pos == 0)
+				addr = strtoull(a, NULL, 0);
+			else if (pos == 1)
+				size = strtoull(a, NULL, 0);
+			else if (pos == 2)
+				out = a;
+			pos++;
+		}
 	}
 
-	mem_fd = open("/dev/mem", O_RDONLY | O_SYNC);
+	if (!probe && !addr_ok(addr, (mark || check) ? 32 : size))
+		return 1;
+
+	mem_fd = open("/dev/mem", (mark ? O_RDWR : O_RDONLY) | O_SYNC);
 	if (mem_fd < 0) {
 		fprintf(stderr, "memdump: /dev/mem: %s\n", strerror(errno));
 		if (errno == ENOENT)
@@ -398,8 +520,10 @@ int main(int argc, char **argv)
 
 	if (probe)
 		return do_probe();
-	if (seclog)
-		return do_seclog(argc >= 3 ? argv[2] : "/sdcard/seclog.bin");
+	if (mark)
+		return do_mark(addr);
+	if (check)
+		return do_check(addr);
 
 	buf = malloc((size_t)size);
 	if (!buf) {
@@ -412,7 +536,8 @@ int main(int argc, char **argv)
 	if (read_phys(addr, buf, (size_t)size) < 0) {
 		fprintf(stderr, "memdump: reading 0x%08llx: %s\n",
 			(unsigned long long)addr, strerror(errno));
-		fprintf(stderr, "neither read() nor mmap() worked on this kernel\n");
+		fprintf(stderr,
+			"neither read() nor mmap() worked on this kernel\n");
 		return 1;
 	}
 
@@ -424,9 +549,7 @@ int main(int argc, char **argv)
 	fwrite(buf, 1, (size_t)size, f);
 	fclose(f);
 
-	printf("read     : 0x%08llx + 0x%llx via %s\n",
-	       (unsigned long long)addr, (unsigned long long)size,
-	       used_mmap ? "mmap" : "pread");
+	printf("method   : %s\n", used_mmap ? "mmap" : "pread");
 	printf("binary   : %s\n", out);
 
 	{
@@ -439,6 +562,9 @@ int main(int argc, char **argv)
 		else if (sig == SEC_LOG_MAGIC)
 			printf("signature: 0x%08x 'LOGM' - vendor sec_log buffer\n",
 			       sig);
+		else if (sig == MARK_MAGIC)
+			printf("signature: 0x%08x 'MARK' - only our own marker is "
+			       "here, the kernel wrote nothing\n", sig);
 		else
 			printf("signature: 0x%08x - no log header here; try "
 			       "./memdump --probe\n", sig);

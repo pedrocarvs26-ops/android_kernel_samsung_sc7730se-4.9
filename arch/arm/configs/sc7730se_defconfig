@@ -1,8 +1,10 @@
 # Spreadtrum SC7730SE (Samsung SM-T560 / SM-T561) bring-up defconfig.
 # Deliberately small: get a log out of the device first, everything else later.
-# There is no UART jig in this setup, so the persistent RAM console (pstore/
-# ramoops, region declared in the board DTS) is the primary debug channel and
-# is read back from TWRP - see docs/DEBUG-TWRP.md.
+# There is no UART jig in this setup, so there are two debug channels, both
+# declared in the board DTS: the log is printed on the tablet's own screen
+# through simplefb + fbcon, reusing the framebuffer the bootloader leaves
+# running, and it is also written to a persistent RAM console (pstore/ramoops)
+# that is read back from TWRP - see docs/DEBUG-TWRP.md.
 CONFIG_SYSVIPC=y
 CONFIG_POSIX_MQUEUE=y
 CONFIG_NO_HZ_IDLE=y
@@ -39,7 +41,7 @@ CONFIG_ARM_APPENDED_DTB=y
 # CONFIG_ARM_ATAG_DTB_COMPAT is not set
 # initcall_debug names every initcall as it runs, so the last line in the RAM
 # console identifies a silent hang; ignore_loglevel forces everything out.
-CONFIG_CMDLINE="console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend initcall_debug ignore_loglevel"
+CONFIG_CMDLINE="console=tty0 console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend initcall_debug ignore_loglevel"
 # appended to the DTB command line, so these survive even if something else
 # rewrites /chosen/bootargs
 CONFIG_CMDLINE_EXTEND=y
@@ -65,6 +67,17 @@ CONFIG_SERIAL_OF_PLATFORM=y
 # CONFIG_HW_RANDOM is not set
 CONFIG_MFD_SYSCON=y
 # CONFIG_HWMON is not set
+# The bootloader hands over a panel that is already running plus its
+# framebuffer (lcd_base=0x9ea44000, /chosen/framebuffer in the board DTS).
+# simplefb + fbcon turn that into a kernel console on the tablet's screen, so
+# a failed boot can simply be photographed - no jig, and no raw /dev/mem reads
+# from recovery, which have twice reset the device.
+CONFIG_FB=y
+CONFIG_FB_SIMPLE=y
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_FONT_8x16=y
 # CONFIG_USB_SUPPORT is not set
 CONFIG_EXT4_FS=y
 CONFIG_TMPFS=y

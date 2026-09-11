@@ -72,8 +72,8 @@ No other upstream file is modified, which keeps the port easy to review and reba
 * **Console index.** `console=ttyS1` assumes `sprd_serial` enumerates the enabled ports in DT
   order with UART0 first. If a serial console is ever attached and stays silent, try `ttyS0`;
   `earlycon` is address-based and therefore reliable. This only affects UART output — the
-  persistent RAM console (`ramoops` at `0x86b80000`, dumped from TWRP) records printk no
-  matter which index the UART ends up with.
+  screen console (`simplefb` + `fbcon`) and the persistent RAM console (`ramoops` at
+  `0x89b00000`, dumped from TWRP) record printk no matter which index the UART ends up with.
 * **No clock driver.** Only fixed clocks (`ext_26m`, `ext_32k`, `clk_48m`) are described. The
   real `scx30g` gate/PLL tree is not implemented, so anything beyond the UART and the timers
   will not get a clock.
@@ -86,12 +86,14 @@ No other upstream file is modified, which keeps the port easy to review and reba
 * **Bootloader watchdog.** If the kernel stalls early the device may reset before any output
   appears; that is not necessarily a kernel hang.
 * **Memory carve-outs** are copied from the vendor DT; the modem region must stay reserved even
-  though no modem driver exists, and it runs all the way to `0x89c00000` — a dump of
-  `0x89b00000` taken from the device came back full of live SIPC ring buffer names. The
-  `ramoops` RAM console therefore lives at `0x86b80000` instead, inside the megabyte the
-  bootloader reserves for the stock RAM console (`sec_log=0xffe00@0x86b00000` on the stock
-  command line), which is the one region both kernels are known to keep out of their
-  allocators.
+  though no modem driver exists. The `ramoops` RAM console takes the top megabyte of it,
+  `0x89b00000`, because that is the only address this device has ever let us read from
+  recovery. The obvious-looking alternative — the megabyte the bootloader reserves for the
+  stock RAM console, `sec_log=0xffe00@0x86b00000` — is worse than useless: reading it from
+  TWRP resets the tablet, because the recovery kernel carves it out of its own map and the
+  faulting read meets `panic_on_oops`. Whether the bootloader reloads CP firmware over
+  `0x89b00000` on a recovery boot is still open, and `tools/memdump --mark` / `--check`
+  answer it on the device.
 
 ## 6. Roadmap
 

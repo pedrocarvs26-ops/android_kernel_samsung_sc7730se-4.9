@@ -18,8 +18,37 @@
 	compatible = "samsung,gtelwifi", "sprd,sc7730se";
 
 	chosen {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
 		stdout-path = "serial1:115200n8";
-		bootargs = "console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
+		bootargs = "console=tty0 console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
+
+		/*
+		 * Kernel log on the tablet's own screen.
+		 *
+		 * The bootloader leaves the panel initialised and passes
+		 * lcd_base=0x9ea44000 on its command line; that buffer is the
+		 * fb_reserved carve-out below, marked no-map so simplefb can
+		 * ioremap_wc() it (ARM refuses ioremap on memory that is still in
+		 * the linear map). With fbcon on top, printk lands on the panel:
+		 * the only debug channel on this device that needs neither a UART
+		 * jig nor a raw /dev/mem read from recovery, both of which have
+		 * already cost us two device resets.
+		 *
+		 * 0xbb8000 bytes is exactly three 800x1280x4 buffers. If the text
+		 * comes out sheared, the bootloader set the panel up the other way
+		 * round: swap to width 1280, height 800, stride 5120.
+		 */
+		framebuffer@9ea44000 {
+			compatible = "simple-framebuffer";
+			reg = <0x9ea44000 0x00bb8000>;
+			width = <800>;
+			height = <1280>;
+			stride = <3200>;
+			format = "a8r8g8b8";
+		};
 	};
 
 	memory@80000000 {
@@ -34,24 +63,30 @@
 
 		/*
 		 * Persistent kernel log, read back from TWRP after a failed boot.
-		 * This is the only debug channel on a device without a UART jig,
-		 * see docs/DEBUG-TWRP.md.
+		 * The screen console above is the primary channel; this one keeps
+		 * the text after the panel is gone and survives a reset.
+		 * See docs/DEBUG-TWRP.md.
 		 *
-		 * The address is not a guess. The stock command line, recovered
-		 * out of DRAM from recovery, contains
-		 * "sec_log=0xffe00@0x86b00000": the Samsung bootloader keeps
-		 * 0x86b00000..0x86c00000 out of the usable memory map on every
-		 * boot, recovery included, for the stock RAM console. Our zone
-		 * sits in the upper half of that window because the recovery
-		 * kernel writes its own sec_log from the base upwards and only
-		 * produces a few tens of KiB, so the 512 KiB below us acts as a
-		 * sacrificial buffer.
+		 * Picking this address took three attempts and two device resets:
 		 *
-		 * The first attempt put this at 0x89b00000, the top of the modem
-		 * window. A dump from the device came back full of live SIPC ring
-		 * buffer names (sbuf_0_*, sblock_0_*), so that memory belongs to
-		 * the CP. The framebuffer and ION regions are no better: TWRP
-		 * draws its UI in one and allocates from the other.
+		 *  - 0x89b00000 first, the top megabyte of the modem window. A dump
+		 *    came back full of CP firmware strings (sbuf_0_*, sblock_0_*),
+		 *    which looked like proof that the region was in use.
+		 *  - then 0x86b80000, inside the megabyte the bootloader reserves
+		 *    for the stock RAM console ("sec_log=0xffe00@0x86b00000" on the
+		 *    recovered command line). That window turned out to be unusable:
+		 *    reading it from recovery resets the tablet instantly, because
+		 *    the recovery kernel carves it out of its own memory map, the
+		 *    /dev/mem read then faults in kernel context, and Samsung builds
+		 *    with panic_on_oops. A log that cannot be read back is worth
+		 *    nothing.
+		 *  - so back to 0x89b00000: the only region that is both kept out of
+		 *    the recovery kernel's allocator and still inside its linear
+		 *    map. A 1 MiB pread there is the single raw memory read this
+		 *    device has ever completed. The CP strings are stale firmware
+		 *    from the previous boot - nothing runs the modem in recovery -
+		 *    and tools/memdump --mark/--check prove on the device whether
+		 *    the bootloader reloads that firmware on a recovery boot.
 		 *
 		 * record-size = <0> leaves the console zone as the only zone, so
 		 * it starts at the base of the region and stays plain text: 4.9
@@ -59,10 +94,10 @@
 		 * The 12-byte header (sig 0x43474244 "DBGC", start, size) is the
 		 * same layout Samsung's own sec_log uses on this SoC.
 		 */
-		ramoops@86b80000 {
+		ramoops@89b00000 {
 			compatible = "ramoops";
-			reg = <0x86b80000 0x60000>;
-			console-size = <0x60000>;
+			reg = <0x89b00000 0x100000>;
+			console-size = <0x100000>;
 			record-size = <0>;
 			ecc-size = <0>;
 		};
@@ -75,12 +110,14 @@
 
 		/*
 		 * CP (modem) firmware window, kept even on Wi-Fi only models.
-		 * It runs all the way to 0x89c00000: the RAM console used to be
-		 * carved out of the top megabyte, which is exactly why the first
-		 * dump came back full of modem data.
+		 * The hardware window runs to 0x89c00000; the top megabyte is the
+		 * RAM console above, so this node stops at 0x89b00000. No modem
+		 * driver exists in this tree and nothing here is loaded by us: the
+		 * stale firmware image the bootloader left behind is what made that
+		 * megabyte look busy in the first dump.
 		 */
 		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1c00000>;
+			reg = <0x88000000 0x1b00000>;
 			no-map;
 		};
 

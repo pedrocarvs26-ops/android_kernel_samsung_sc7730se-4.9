@@ -156,15 +156,17 @@ stock kernel back. No UART jig and no PC are required — see
 3. Flash it from the tablet: copy `out/boot.img` over and use TWRP → Install → Install
    Image → *Boot*. (`out/boot_*.tar.md5` is the same image packed for Odin — AP slot, Auto
    Reboot off — if you would rather use a PC.)
-4. **Read the log from TWRP; no UART jig needed.** The kernel keeps its console in a RAM
-   region (`ramoops`, 384 KiB at `0x86b80000`) that sits inside the megabyte the Samsung
-   bootloader already reserves for the stock RAM console — it passes
-   `sec_log=0xffe00@0x86b00000` on every boot, recovery included — so after a boot attempt
-   you warm reboot into recovery with **Volume Up + Home + Power** and dump it:
+4. **Read the log without a UART jig.** Two channels, and the first one needs no tooling
+   at all: the kernel prints its log **on the tablet's own screen** through `simplefb` +
+   `fbcon`, reusing the framebuffer the bootloader leaves running, so a failed boot can
+   simply be photographed. The same log also goes to a persistent RAM console (`ramoops`,
+   1 MiB at `0x89b00000`, the top of the modem window — the one region that is both kept
+   out of the recovery kernel's allocator and still readable from it). After a boot
+   attempt, warm reboot into recovery with **Volume Up + Home + Power** and dump it:
 
    ```sh
    chmod +x /sdcard/memdump
-   /sdcard/memdump                     # 0x86b80000 + 0x60000 -> /sdcard/ramoops.bin
+   /sdcard/memdump                     # 0x89b00000 + 0x100000 -> /sdcard/ramoops.bin
    tail -n 200 /sdcard/ramoops.bin.txt
    ```
 

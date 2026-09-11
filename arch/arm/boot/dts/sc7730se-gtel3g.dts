@@ -14,8 +14,27 @@
 	compatible = "samsung,gtel3g", "sprd,sc7730se";
 
 	chosen {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
 		stdout-path = "serial1:115200n8";
-		bootargs = "console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
+		bootargs = "console=tty0 console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
+
+		/*
+		 * Kernel log on the panel the bootloader already initialised
+		 * (lcd_base=0x9ea44000, the fb_reserved carve-out below); see the
+		 * longer comment in sc7730se-gtelwifi.dts. Swap to 1280/800/5120
+		 * if the text comes out sheared.
+		 */
+		framebuffer@9ea44000 {
+			compatible = "simple-framebuffer";
+			reg = <0x9ea44000 0x00bb8000>;
+			width = <800>;
+			height = <1280>;
+			stride = <3200>;
+			format = "a8r8g8b8";
+		};
 	};
 
 	memory@80000000 {
@@ -29,15 +48,17 @@
 		ranges;
 
 		/*
-		 * Persistent kernel log, inside the window the bootloader already
-		 * reserves for the stock RAM console ("sec_log=0xffe00@0x86b00000"
-		 * on the stock command line); see docs/DEBUG-TWRP.md and the
-		 * longer comment in sc7730se-gtelwifi.dts.
+		 * Persistent kernel log: the top megabyte of the modem window, the
+		 * only region that is both reserved by the recovery kernel and
+		 * still readable from it. The bootloader's own sec_log window at
+		 * 0x86b00000 resets the device when read from TWRP; see
+		 * docs/DEBUG-TWRP.md and the longer comment in
+		 * sc7730se-gtelwifi.dts.
 		 */
-		ramoops@86b80000 {
+		ramoops@89b00000 {
 			compatible = "ramoops";
-			reg = <0x86b80000 0x60000>;
-			console-size = <0x60000>;
+			reg = <0x89b00000 0x100000>;
+			console-size = <0x100000>;
 			record-size = <0>;
 			ecc-size = <0>;
 		};
@@ -47,9 +68,9 @@
 			no-map;
 		};
 
-		/* the CP owns everything up to 0x89c00000, SIPC rings included */
+		/* the CP window runs to 0x89c00000; the top MiB is the RAM console */
 		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1c00000>;
+			reg = <0x88000000 0x1b00000>;
 			no-map;
 		};
 

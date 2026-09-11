@@ -203,13 +203,26 @@ Boot addresses from the vendor `Makefile.boot`:
   `OF_EARLYCON_DECLARE(sprd_serial, ...)`, so `earlycon=sprd_serial,0x70100000` works before
   clocks and pinctrl are up.
 * Physical access to the UART is through the headphone jack with a **619 kOhm** resistor jig.
-  That jig is **optional** for this port. The primary log channel is the persistent RAM
-  console (`ramoops`, 384 KiB at `0x86b80000`, inside the window the bootloader reserves for
-  the stock RAM console), dumped from TWRP with [`tools/memdump.c`](../tools/memdump.c) after
-  a warm reboot — see [`DEBUG-TWRP.md`](DEBUG-TWRP.md). `dd` cannot do that read: every DRAM
-  address here is above 2 GiB and overflows a 32-bit `off_t`. The vendor 3.10 kernel that
-  TWRP runs is built with `CONFIG_STRICT_DEVMEM` off and `CONFIG_DEVKMEM=y`, which is what
-  makes reading raw physical RAM from recovery possible at all.
+  That jig is **optional** for this port. The primary log channel is the panel itself: the
+  bootloader leaves it initialised and passes `lcd_base=0x9ea44000`, so `simple-framebuffer`
+  plus `fbcon` print the kernel log on screen. The backup channel is the persistent RAM
+  console (`ramoops`, 1 MiB at `0x89b00000`), dumped from TWRP with
+  [`tools/memdump.c`](../tools/memdump.c) after a warm reboot — see
+  [`DEBUG-TWRP.md`](DEBUG-TWRP.md). `dd` cannot do that read: every DRAM address here is
+  above 2 GiB and overflows a 32-bit `off_t`. The vendor 3.10 kernel that TWRP runs is built
+  with `CONFIG_STRICT_DEVMEM` off and `CONFIG_DEVKMEM=y`, which is what makes reading raw
+  physical RAM from recovery possible at all.
+* **Not every reserved region can be read from recovery.** Reading the bootloader's `sec_log`
+  window (`0x86b00000`, 1 MiB) from TWRP resets the device on the spot: the recovery kernel
+  carves that window out of its own memory map, so the `/dev/mem` read faults in kernel
+  context and `panic_on_oops` reboots the tablet. The modem window
+  (`0x88000000..0x89c00000`) is reserved but still mapped, and is the only range this device
+  has ever completed a raw read from. Blind scanning of DRAM resets it as well, through the
+  TrustZone carve-outs. `cat /proc/iomem` in TWRP is the authoritative map.
+* The framebuffer handed over by the bootloader is `0x9ea44000 + 0x00bb8000`, which is exactly
+  three 800x1280x4 buffers. It is the `fb_reserved` carve-out and is marked `no-map`, which is
+  what lets `simplefb` `ioremap_wc()` it — ARM refuses `ioremap` on memory that is still in
+  the kernel's linear map.
 * **The bootloader builds its own kernel command line and ignores the one in the boot.img
   header.** The line recovered from a running device is
   `mem=1536M init=/init ... console=null loglevel=0 sec_log=0xffe00@0x86b00000

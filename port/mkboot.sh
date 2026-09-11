@@ -94,12 +94,13 @@ cat <<EOF
 2. Copy $OUT/boot-nosmp.img to the tablet, then TWRP -> Install -> Install
    Image -> boot-nosmp.img -> Boot partition. SMP bring-up is the least tested
    part of this port, so start on one core.
-3. Reboot -> System, wait ~30 s, then hold Volume Up + Home + Power to warm
-   reboot back into TWRP. Do not cut the power: the log lives in DRAM and only
-   survives a warm reset.
+3. Reboot -> System and watch the screen: with simplefb + fbcon the kernel log
+   is printed on the panel itself, so photograph whatever shows up. After ~30 s
+   hold Volume Up + Home + Power to warm reboot back into TWRP. Do not cut the
+   power: the RAM console lives in DRAM and only survives a warm reset.
 4. In the TWRP terminal (or adb shell), dump the RAM console:
      cp /sdcard/memdump /tmp/memdump && chmod +x /tmp/memdump
-     /tmp/memdump                  # 0x86b80000 + 0x60000
+     /tmp/memdump                  # 0x89b00000 + 0x100000
      tail -n 200 /sdcard/ramoops.bin.txt
    dd cannot do that read: every DRAM address on this SoC is above 2 GiB,
    which does not fit a 32 bit off_t, so dd stops with "Bad address".
