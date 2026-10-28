@@ -96,9 +96,6 @@ static void sprd_sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	u16 clk = 0;
 	unsigned long timeout;
 
-	if (clock && clock == host->clock)
-		return;
-
 	/* Sequence: disable SDCLK before changing divider */
 	clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
 	clk &= ~SDHCI_CLOCK_CARD_EN;
