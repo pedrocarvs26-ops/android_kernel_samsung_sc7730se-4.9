@@ -73,23 +73,27 @@ static void merge_fdt_bootargs(void *fdt, const char *fdt_cmdline)
 	char *ptr = cmdline;
 	int len = 0;
 
-	/* copy the fdt command line into the buffer */
-	fdt_bootargs = getprop(fdt, "/chosen", "bootargs", &len);
-	if (fdt_bootargs)
-		if (len < COMMAND_LINE_SIZE) {
-			memcpy(ptr, fdt_bootargs, len);
-			/* len is the length of the string
-			 * including the NULL terminator */
-			ptr += len - 1;
-		}
-
-	/* and append the ATAG_CMDLINE */
+	/*
+	 * Copy S-Boot's ATAG_CMDLINE first (which carries initrd=0x85500000,...
+	 * and androidboot.* parameters), then append our FDT /chosen/bootargs
+	 * second so our console=tty0 and loglevel=8 override S-Boot's
+	 * console=null loglevel=0.
+	 */
 	if (fdt_cmdline) {
 		len = strlen(fdt_cmdline);
-		if (ptr - cmdline + len + 2 < COMMAND_LINE_SIZE) {
-			*ptr++ = ' ';
+		if (len < COMMAND_LINE_SIZE) {
 			memcpy(ptr, fdt_cmdline, len);
 			ptr += len;
+		}
+	}
+
+	fdt_bootargs = getprop(fdt, "/chosen", "bootargs", &len);
+	if (fdt_bootargs && len > 1) {
+		if (ptr - cmdline + len + 2 < COMMAND_LINE_SIZE) {
+			if (ptr > cmdline)
+				*ptr++ = ' ';
+			memcpy(ptr, fdt_bootargs, len - 1);
+			ptr += len - 1;
 		}
 	}
 	*ptr = '\0';
@@ -129,10 +133,24 @@ int atags_to_fdt(void *atag_list, void *fdt, int total_space)
 		if (atag_list != fdt && fdt_check_header(atag_list) == 0) {
 			int len = 0;
 			const uint32_t *initrd_start, *initrd_end;
+			const char *sboot_bootargs;
+			char sboot_cmdline[COMMAND_LINE_SIZE];
+
+			sboot_cmdline[0] = '\0';
+			sboot_bootargs = getprop(atag_list, "/chosen", "bootargs", &len);
+			if (sboot_bootargs && len > 0) {
+				if (len >= COMMAND_LINE_SIZE)
+					len = COMMAND_LINE_SIZE - 1;
+				memcpy(sboot_cmdline, sboot_bootargs, len);
+				sboot_cmdline[len] = '\0';
+			}
 
 			ret = fdt_open_into(fdt, fdt, total_space);
 			if (ret < 0)
 				return 0;
+
+			if (sboot_cmdline[0] != '\0')
+				merge_fdt_bootargs(fdt, sboot_cmdline);
 
 			initrd_start = getprop(atag_list, "/chosen", "linux,initrd-start", &len);
 			if (initrd_start && len == sizeof(uint32_t))

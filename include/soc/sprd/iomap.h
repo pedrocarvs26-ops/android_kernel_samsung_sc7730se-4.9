@@ -102,8 +102,12 @@
 #define SPRD_PWM_SIZE			SZ_4K
 
 #define SPRD_WDG_BASE			SCI_IOMAP(0x00262000)
-#define SPRD_WDG_PHYS			0x40270000UL
+#define SPRD_WDG_PHYS			0x40290000UL
 #define SPRD_WDG_SIZE			SZ_4K
+
+#define SPRD_CA7WDG_BASE		SCI_IOMAP(0x00264000)
+#define SPRD_CA7WDG_PHYS		0x40320000UL
+#define SPRD_CA7WDG_SIZE		SZ_4K
 
 #define SPRD_GPIO_BASE			SCI_IOMAP(0x00280000)
 #define SPRD_GPIO_PHYS			0x40280000UL
@@ -213,8 +217,16 @@
 #define SPRD_GPTIMER_SIZE		SZ_4K
 
 #define SPRD_APTIMER0_BASE		SCI_IOMAP(0x00394000)
-#define SPRD_APTIMER0_PHYS		0x40060000UL
+#define SPRD_APTIMER0_PHYS		0x40220000UL
 #define SPRD_APTIMER0_SIZE		SZ_4K
+
+#define SPRD_APTIMER1_BASE		SCI_IOMAP(0x00398000)
+#define SPRD_APTIMER1_PHYS		0x40330000UL
+#define SPRD_APTIMER1_SIZE		SZ_4K
+
+#define SPRD_APTIMER2_BASE		SCI_IOMAP(0x0039a000)
+#define SPRD_APTIMER2_PHYS		0x40340000UL
+#define SPRD_APTIMER2_SIZE		SZ_4K
 
 #define SPRD_SYSTIMER_CMP_BASE		SCI_IOMAP(0x00396000)
 #define SPRD_SYSTIMER_CMP_PHYS		0x402E0000UL
@@ -291,10 +303,11 @@
 #define BIT_UART2_EB				BIT(15)
 #define BIT_UART3_EB				BIT(16)
 #define BIT_UART4_EB				BIT(17)
-#define BIT_INTC0_EB				BIT(18)
-#define BIT_INTC1_EB				BIT(19)
-#define BIT_INTC2_EB				BIT(20)
-#define BIT_INTC3_EB				BIT(21)
+#define BIT_AP_CKG_EB				BIT(18)
+#define BIT_INTC0_EB				BIT(19)
+#define BIT_INTC1_EB				BIT(20)
+#define BIT_INTC2_EB				BIT(21)
+#define BIT_INTC3_EB				BIT(22)
 
 #define BIT_I2C0_SOFT_RST			BIT(8)
 #define BIT_I2C1_SOFT_RST			BIT(9)
@@ -347,12 +360,27 @@
 #define BIT_PIN_EB				BIT(20)
 #define BIT_IPI_EB				BIT(28)
 
-#define BIT_EIC_RTC_EB				BIT(6)
-#define BIT_EIC_RTCDV5_EB			BIT(16)
+/* REG_AON_APB_APB_RTC_EB (0x402E0010) bits from chip_x30g/__regs_aon_apb.h */
+#define BIT_ARCH_RTC_EB				BIT(0)
 #define BIT_KPD_RTC_EB				BIT(1)
+#define BIT_AON_SYST_RTC_EB			BIT(2)
+#define BIT_AP_SYST_RTC_EB			BIT(3)
+#define BIT_AON_TMR_RTC_EB			BIT(4)
+#define BIT_AP_TMR0_RTC_EB			BIT(5)
+#define BIT_EIC_RTC_EB				BIT(6)
+#define BIT_EIC_RTCDV5_EB			BIT(7)
+#define BIT_AP_WDG_RTC_EB			BIT(8)
+#define BIT_CA7_WDG_RTC_EB			BIT(9)
+#define BIT_AP_TMR1_RTC_EB			BIT(15)
+#define BIT_AP_TMR2_RTC_EB			BIT(16)
+
+/* REG_AON_APB_APB_EB1 (0x402E0004) bits */
 #define BIT_AP_WDG_EB				BIT(4)
 #define BIT_AP_TMR1_EB				BIT(9)
 #define BIT_AP_TMR2_EB				BIT(10)
+
+void sprd_intc_mask(u32 gic_hwirq);
+void sprd_intc_unmask(u32 gic_hwirq);
 
 #define BIT_KPD_SOFT_RST			BIT(8)
 #define BIT_EIC_SOFT_RST			BIT(13)

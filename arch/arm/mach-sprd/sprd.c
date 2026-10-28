@@ -61,6 +61,7 @@ static struct map_desc sprd_io_desc[] __initdata = {
 	IOTABLE_ENTRY(SYSCNT),
 	IOTABLE_ENTRY(PWM),
 	IOTABLE_ENTRY(WDG),
+	IOTABLE_ENTRY(CA7WDG),
 	IOTABLE_ENTRY(GPIO),
 	IOTABLE_ENTRY(PIN),
 	IOTABLE_ENTRY(PMU),
@@ -88,6 +89,8 @@ static struct map_desc sprd_io_desc[] __initdata = {
 	IOTABLE_ENTRY(ADI),
 	IOTABLE_ENTRY(GPTIMER),
 	IOTABLE_ENTRY(APTIMER0),
+	IOTABLE_ENTRY(APTIMER1),
+	IOTABLE_ENTRY(APTIMER2),
 };
 
 /* Preserve 3.10 device names for SDIO/eMMC so clock lookups & by-name symlinks match */
@@ -117,11 +120,15 @@ static void __init sprd_init_early(void)
 
 static void __init sprd_init_time(void)
 {
-	/* Enable AP_TMR0, AON_TMR, AP_SYST, and AON_SYST clocks before clocksource_probe */
+	/* Enable AP_TMR0..2, AON_TMR, AP_SYST, and AON_SYST APB & 32kHz RTC clocks */
 	sci_glb_set(REG_AON_APB_APB_EB0,
 		    BIT_AON_TMR_EB | BIT_AP_TMR0_EB | BIT_AP_SYST_EB | BIT_AON_SYST_EB);
+	sci_glb_set(REG_AON_APB_APB_EB1,
+		    BIT_AP_TMR1_EB | BIT_AP_TMR2_EB);
 	sci_glb_set(REG_AON_APB_APB_RTC_EB,
-		    BIT_AON_TMR_EB | BIT_AP_TMR0_EB | BIT_AP_SYST_EB | BIT_AON_SYST_EB);
+		    BIT_ARCH_RTC_EB | BIT_AON_SYST_RTC_EB | BIT_AP_SYST_RTC_EB |
+		    BIT_AON_TMR_RTC_EB | BIT_AP_TMR0_RTC_EB |
+		    BIT_AP_TMR1_RTC_EB | BIT_AP_TMR2_RTC_EB);
 
 	clocksource_probe();
 }
@@ -198,9 +205,9 @@ void sprd_restart(enum reboot_mode mode, const char *cmd)
 	sci_adi_raw_write(ANA_WDG_LOAD_LOW, 1638);
 	sci_adi_set(ANA_WDG_CTRL, WDG_CNT_EN_BIT | WDG_RST_EN_BIT);
 
-	/* Also trigger AP Watchdog at 0x40270000 as fallback */
+	/* Also trigger AP Watchdog at 0x40290000 as fallback */
 	sci_glb_set(REG_AON_APB_APB_EB1, BIT_AP_WDG_EB);
-	sci_glb_set(REG_AON_APB_APB_RTC_EB, BIT_AP_WDG_EB);
+	sci_glb_set(REG_AON_APB_APB_RTC_EB, BIT_AP_WDG_RTC_EB);
 	__raw_writel(WDG_UNLOCK_KEY, (void __iomem *)(SPRD_WDG_BASE + 0x20));
 	__raw_writel(WDG_NEW_VER_EN, (void __iomem *)(SPRD_WDG_BASE + 0x08));
 	__raw_writel(0, (void __iomem *)(SPRD_WDG_BASE + 0x04));

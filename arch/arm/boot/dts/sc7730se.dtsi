@@ -41,50 +41,37 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu0: cpu@0 {
+		cpu0: cpu@f00 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0x0>;
+			reg = <0xf00>;
 			enable-method = "sprd,sc7730se-smp";
 			clock-frequency = <1300000000>;
 		};
 
-		cpu1: cpu@1 {
+		cpu1: cpu@f01 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0x1>;
+			reg = <0xf01>;
 			enable-method = "sprd,sc7730se-smp";
 			clock-frequency = <1300000000>;
 		};
 
-		cpu2: cpu@2 {
+		cpu2: cpu@f02 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0x2>;
+			reg = <0xf02>;
 			enable-method = "sprd,sc7730se-smp";
 			clock-frequency = <1300000000>;
 		};
 
-		cpu3: cpu@3 {
+		cpu3: cpu@f03 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0x3>;
+			reg = <0xf03>;
 			enable-method = "sprd,sc7730se-smp";
 			clock-frequency = <1300000000>;
 		};
-	};
-
-	/*
-	 * Cortex-A7 Generic Timer (arch_timer)
-	 */
-	timer {
-		compatible = "arm,armv7-timer";
-		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
-			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
-			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
-			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>;
-		clock-frequency = <26000000>;
-		always-on;
 	};
 
 	/*
@@ -108,14 +95,23 @@
 		ranges;
 
 		/*
-		 * Spreadtrum GPTIMER0 (0x40050000):
-		 * - Timer 0: 32768 Hz clockevent (GIC SPI 28)
-		 * - Timer 1: 32768 Hz 32-bit countdown clocksource & sched_clock
+		 * Spreadtrum GPTIMERs (AON_TMR + AP_TMR0..2):
+		 * - 0x40050000 (AON_TMR): CPU0 local timer (SPI 28) + 32768 Hz clocksource
+		 * - 0x40220000 (AP_TMR0): CPU1 local timer (SPI 29) + bctimer (SPI 118)
+		 * - 0x40330000 (AP_TMR1): CPU2 local timer (SPI 119)
+		 * - 0x40340000 (AP_TMR2): CPU3 local timer (SPI 121)
 		 */
 		gptimer: timer@40050000 {
-			compatible = "sprd,sc7730se-timer", "sprd,sc8830-timer";
-			reg = <0x40050000 0x100>;
-			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+			compatible = "sprd,sc7730se-timer", "sprd,sc8830-timer", "sprd,scx35-timer";
+			reg = <0x40050000 0x100>,
+			      <0x40220000 0x100>,
+			      <0x40330000 0x100>,
+			      <0x40340000 0x100>;
+			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
 			clock-frequency = <32768>;
 		};
 

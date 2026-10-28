@@ -99,11 +99,28 @@ static void sec_log_putc(char c)
 		return;
 
 	pos = *sec_log_ptr;
+	/*
+	 * TWRP 3.10 sec_log_save_old() indexes sec_log_buf using
+	 * `& (0xFFE00 - 1)` = `& 0xFFDFF`, which has bit 9 (0x200) cleared!
+	 * Skip odd 512-byte blocks (where bit 9 is 1) and mirror the previous
+	 * 512-byte block into them so TWRP /proc/last_kmsg never drops a byte.
+	 */
+	if (pos & 0x200) {
+		u32 base512 = pos & ~0x3FFU;
+		if (base512 + 0x400 <= SEC_LOG_BUF_SIZE)
+			memcpy(sec_log_buf + base512 + 0x200,
+			       sec_log_buf + base512, 0x200);
+		pos = (pos + 0x200) & ~0x200U;
+	}
 	if (pos >= SEC_LOG_BUF_SIZE)
 		pos = 0;
 
 	sec_log_buf[pos] = c;
+	if (pos + 0x200 < SEC_LOG_BUF_SIZE)
+		sec_log_buf[pos + 0x200] = c;
 	pos++;
+	if (pos & 0x200)
+		pos += 0x200;
 	if (pos >= SEC_LOG_BUF_SIZE)
 		pos = 0;
 
@@ -238,11 +255,10 @@ void __init sprd_early_console_map_io(void)
 	}
 
 	*sec_log_mag = SEC_LOG_MAGIC;
-	if (*sec_log_ptr >= SEC_LOG_BUF_SIZE)
-		*sec_log_ptr = 0;
+	*sec_log_ptr = 0;
 
 	sec_log_hdr->sig = SEC_RAM_CONSOLE_SIG;
-	sec_log_hdr->start = *sec_log_ptr;
+	sec_log_hdr->start = 0;
 	sec_log_hdr->size = 0;
 	sec_log_hdr->from = 0;
 	sec_log_hdr->to = 0;

@@ -47,6 +47,9 @@
 #include <asm/exception.h>
 #include <asm/smp_plat.h>
 #include <asm/virt.h>
+#ifdef CONFIG_ARCH_SPRD
+#include <soc/sprd/iomap.h>
+#endif
 
 #include "irq-gic-common.h"
 
@@ -205,6 +208,10 @@ static int gic_peek_irq(struct irq_data *d, u32 offset)
 static void gic_mask_irq(struct irq_data *d)
 {
 	gic_poke_irq(d, GIC_DIST_ENABLE_CLEAR);
+#ifdef CONFIG_ARCH_SPRD
+	if (d->domain == gic_data[0].domain)
+		sprd_intc_mask(gic_irq(d));
+#endif
 }
 
 static void gic_eoimode1_mask_irq(struct irq_data *d)
@@ -224,6 +231,10 @@ static void gic_eoimode1_mask_irq(struct irq_data *d)
 
 static void gic_unmask_irq(struct irq_data *d)
 {
+#ifdef CONFIG_ARCH_SPRD
+	if (d->domain == gic_data[0].domain)
+		sprd_intc_unmask(gic_irq(d));
+#endif
 	gic_poke_irq(d, GIC_DIST_ENABLE_SET);
 }
 
