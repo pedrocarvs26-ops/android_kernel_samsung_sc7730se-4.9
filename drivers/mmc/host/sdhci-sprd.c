@@ -53,6 +53,8 @@ struct sprd_sdhci_host {
 
 static void sprd_sdhci_reset(struct sdhci_host *host, u8 mask)
 {
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sprd_sdhci_host *sprd_host = sdhci_pltfm_priv(pltfm_host);
 	unsigned long timeout = 100;
 
 	if (mask & SDHCI_RESET_ALL) {
@@ -76,6 +78,13 @@ static void sprd_sdhci_reset(struct sdhci_host *host, u8 mask)
 		}
 		timeout--;
 		mdelay(1);
+	}
+
+	if ((mask & SDHCI_RESET_ALL) &&
+	    (sprd_host->id == 1 || sprd_host->id == 2)) {
+		u16 tmp_val = sdhci_readw(host, SDHCI_TRANSFER_MODE);
+		tmp_val &= 0xF8FF;
+		sdhci_writew(host, tmp_val, SDHCI_TRANSFER_MODE);
 	}
 }
 
@@ -102,13 +111,19 @@ static void sprd_sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	if (clock == 0)
 		goto out;
 
-	for (div = 1; div < 256; div++) {
-		if ((host->max_clk / div) <= clock)
-			break;
+	if (host->max_clk <= clock) {
+		div = 1;
+	} else {
+		for (div = 2; div < SDHCI_MAX_DIV_SPEC_300; div += 2) {
+			if ((host->max_clk / div) <= clock)
+				break;
+		}
 	}
 	real_div = div;
-	/* Spreadtrum divider encoding: N-1 in SDHCI_CLOCK_CONTROL */
-	div = (div == 0) ? 0 : (div - 1);
+	/* Spreadtrum SDHCI v3.00 divider encoding: (real_div >> 1) - 1 */
+	div >>= 1;
+	if (div >= 1)
+		div--;
 
 	if (real_div)
 		host->mmc->actual_clock = host->max_clk / real_div;
@@ -200,11 +215,12 @@ static const struct sdhci_ops sprd_sdhci_ops = {
 static const struct sdhci_pltfm_data sprd_sdhci_pdata = {
 	.quirks = SDHCI_QUIRK_NO_HISPD_BIT |
 		  SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK |
+		  SDHCI_QUIRK_BROKEN_CARD_DETECTION |
 		  SDHCI_QUIRK_CLOCK_BEFORE_RESET |
 		  SDHCI_QUIRK_MISSING_CAPS |
 		  SDHCI_QUIRK_DELAY_AFTER_POWER,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
-		   SDHCI_QUIRK2_NO_1_8_V,
+		   SDHCI_QUIRK2_BROKEN_HS200,
 	.ops = &sprd_sdhci_ops,
 };
 
@@ -217,6 +233,7 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 	struct resource *res;
 	const char *vmmc_name = NULL, *vqmmc_name = NULL;
 	u32 max_freq = 52000000;
+	u32 host_caps_mask = 0;
 	int ret;
 
 	host = sdhci_pltfm_init(pdev, &sprd_sdhci_pdata, sizeof(*sprd_host));
@@ -258,9 +275,13 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 	of_property_read_u32(np, "enb-bit", &sprd_host->enb_bit);
 	of_property_read_u32(np, "rst-bit", &sprd_host->rst_bit);
 	of_property_read_u32(np, "max-frequency", &max_freq);
+	of_property_read_u32(np, "host-caps-mask", &host_caps_mask);
 	of_property_read_u32(np, "write-delay", &sprd_host->write_delay);
 	of_property_read_u32(np, "read-pos-delay", &sprd_host->read_pos_delay);
 	of_property_read_u32(np, "read-neg-delay", &sprd_host->read_neg_delay);
+
+	if (sprd_host->id == 0)
+		host->quirks2 |= SDHCI_QUIRK2_NO_1_8_V;
 
 	/* Enable AHB gate and pulse controller soft reset */
 	if (sprd_host->enb_bit)
@@ -319,16 +340,24 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 
 	if (of_find_property(np, "sdhci-cap-hw-reset", NULL))
 		host->mmc->caps |= MMC_CAP_HW_RESET;
+	if (of_find_property(np, "sdhci-cap-1v8-ddr", NULL))
+		host->mmc->caps |= MMC_CAP_1_8V_DDR;
 	if (of_find_property(np, "sdhci-cap2-hc-erase-sz", NULL))
 		host->mmc->caps2 |= MMC_CAP2_HC_ERASE_SZ;
 
 	host->mmc->caps |= MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED | MMC_CAP_ERASE;
 
-	host->caps = sdhci_readl(host, SDHCI_CAPABILITIES);
+	host->caps = sdhci_readl(host, SDHCI_CAPABILITIES) & ~host_caps_mask;
 	host->caps1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
-	host->caps |= SDHCI_CAN_VDD_300 | SDHCI_CAN_VDD_330 | SDHCI_CAN_VDD_180;
-	host->ocr_avail_mmc = MMC_VDD_29_30 | MMC_VDD_30_31 | MMC_VDD_32_33 |
-			      MMC_VDD_33_34 | MMC_VDD_165_195;
+	if (sprd_host->id == 3) {
+		host->caps |= SDHCI_CAN_VDD_180;
+		host->ocr_avail_mmc = MMC_VDD_165_195;
+	} else {
+		host->caps |= (SDHCI_CAN_VDD_300 | SDHCI_CAN_VDD_330 | SDHCI_CAN_VDD_180) &
+			      ~host_caps_mask;
+		host->ocr_avail_mmc = MMC_VDD_29_30 | MMC_VDD_30_31 | MMC_VDD_32_33 |
+				      MMC_VDD_33_34 | MMC_VDD_165_195;
+	}
 	host->ocr_avail_sd = MMC_VDD_29_30 | MMC_VDD_30_31 | MMC_VDD_32_33 |
 			     MMC_VDD_33_34;
 	host->ocr_avail_sdio = MMC_VDD_29_30 | MMC_VDD_30_31 | MMC_VDD_32_33 |
@@ -337,6 +366,8 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 	ret = sdhci_add_host(host);
 	if (ret)
 		goto err_pltfm;
+
+	flush_delayed_work(&host->mmc->detect);
 
 	dev_info(&pdev->dev, "Spreadtrum SDHCI host %d initialized at 0x%08lx (base_clk=%u Hz)\n",
 		 sprd_host->id, res ? (unsigned long)res->start : 0UL, sprd_host->base_rate);

@@ -19,6 +19,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/clk-provider.h>
 #include <linux/clocksource.h>
 #include <linux/reboot.h>
 
@@ -130,6 +131,7 @@ static void __init sprd_init_time(void)
 		    BIT_AON_TMR_RTC_EB | BIT_AP_TMR0_RTC_EB |
 		    BIT_AP_TMR1_RTC_EB | BIT_AP_TMR2_RTC_EB);
 
+	of_clk_init(NULL);
 	clocksource_probe();
 }
 

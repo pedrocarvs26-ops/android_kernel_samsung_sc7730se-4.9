@@ -51,7 +51,7 @@
 	};
 
 	chosen {
-		bootargs = "console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk ignore_loglevel panic=10 root=/dev/mmcblk0p20 rw rootwait init=/init androidboot.hardware=sc8830";
+		bootargs = "console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk ignore_loglevel panic=10 root=/dev/mmcblk0p20 rw rootwait init=/init androidboot.hardware=sc8830 androidboot.selinux=permissive enforcing=0";
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;

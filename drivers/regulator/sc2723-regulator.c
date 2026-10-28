@@ -295,6 +295,7 @@ static int sci_regulator_probe(struct platform_device *pdev)
 	for_each_child_of_node(dev_np, child_np) {
 		struct regulator_config config = { };
 		struct sci_regulator_regs *regs = &sci_desc->regs;
+		struct regulator_consumer_supply *supply;
 		struct regulator_dev *rdev;
 
 		if (!strcmp(child_np->name, "dummy"))
@@ -311,21 +312,31 @@ static int sci_regulator_probe(struct platform_device *pdev)
 		if (!sci_desc->init_data)
 			continue;
 
+		supply = devm_kzalloc(&pdev->dev, sizeof(*supply), GFP_KERNEL);
+		if (supply) {
+			supply->dev_name = NULL;
+			supply->supply = child_np->name;
+			sci_desc->init_data->consumer_supplies = supply;
+			sci_desc->init_data->num_consumer_supplies = 1;
+		}
+
 		sci_desc->init_data->constraints.valid_modes_mask |=
 			REGULATOR_MODE_NORMAL | REGULATOR_MODE_STANDBY;
 		sci_desc->init_data->constraints.valid_ops_mask |=
 			REGULATOR_CHANGE_MODE | REGULATOR_CHANGE_STATUS |
 			REGULATOR_CHANGE_VOLTAGE;
 
-		regs->typ = of_property_read_bool(child_np, "dcdc") ? 2 : 0;
-		if (of_property_read_bool(child_np, "default-on")) {
-			regs->typ |= BIT(4);
-			sci_desc->init_data->constraints.boot_on = 1;
-		}
-
 		of_regu_read_reg(child_np, 0, regs);
 		of_regu_read_reg(child_np, 1, regs);
 		of_regu_read_reg(child_np, 2, regs);
+
+		regs->typ = of_property_read_bool(child_np, "dcdc") ? 2 : 0;
+		if (of_property_read_bool(child_np, "default-on") ||
+		    (regs->pd_set && !(ANA_REG_GET(regs->pd_set) & regs->pd_set_bit))) {
+			regs->typ |= BIT(4);
+			sci_desc->init_data->constraints.boot_on = 1;
+			sci_desc->init_data->constraints.always_on = 1;
+		}
 
 		regs->min_uV = sci_desc->init_data->constraints.min_uV;
 		of_property_read_u32(child_np, "regulator-step-microvolt", &regs->step_uV);

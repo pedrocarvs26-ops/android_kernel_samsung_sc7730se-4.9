@@ -405,7 +405,7 @@ static void __init of_sprd_fixed_clk_setup(struct device_node *node)
 		return;
 
 	of_property_read_string(node, "clock-output-names", &clk_name);
-	clk = clk_register_fixed_rate(NULL, clk_name, NULL, 0, rate);
+	clk = clk_register_fixed_rate(NULL, clk_name, NULL, CLK_IGNORE_UNUSED, rate);
 	if (!IS_ERR(clk)) {
 		of_clk_add_provider(node, of_clk_src_simple_get, clk);
 		clk_register_clkdev(clk, clk_name, NULL);
@@ -427,7 +427,7 @@ static void __init of_sprd_fixed_factor_clk_setup(struct device_node *node)
 	of_property_read_string(node, "clock-output-names", &clk_name);
 	parent_name = of_clk_get_parent_name(node, 0);
 
-	clk = clk_register_fixed_factor(NULL, clk_name, parent_name, 0, mult, div);
+	clk = clk_register_fixed_factor(NULL, clk_name, parent_name, CLK_IGNORE_UNUSED, mult, div);
 	if (!IS_ERR(clk)) {
 		of_clk_add_provider(node, of_clk_src_simple_get, clk);
 		clk_register_clkdev(clk, clk_name, NULL);
@@ -441,7 +441,7 @@ static void __init of_sprd_fixed_pll_clk_setup(struct device_node *node)
 	const char *clk_name = node->name;
 	struct clk_init_data init = {
 		.ops = &sprd_clk_fixed_pll_ops,
-		.flags = 0,
+		.flags = CLK_IGNORE_UNUSED,
 		.num_parents = 0,
 	};
 	u32 rate;
@@ -472,7 +472,7 @@ static void __init of_sprd_adjustable_pll_clk_setup(struct device_node *node)
 	const char *clk_name = node->name;
 	struct clk_init_data init = {
 		.ops = &sprd_clk_adjustable_pll_ops,
-		.flags = 0,
+		.flags = CLK_IGNORE_UNUSED,
 		.num_parents = 0,
 	};
 	const __be32 *mulreg, *prereg;
