@@ -127,12 +127,12 @@ static int rt8555_backlight_probe(struct i2c_client *client,
 
 	data->client = client;
 	data->gpio_en = -EINVAL;
-	data->gpio_pwm = 190; /* GPIO 190 PWM_BL on SM-T560/T561 */
+	data->gpio_pwm = 214; /* GPIO 214 PWM3_BL ctrl pin on SM-T560/T561 */
 
 	if (np)
 		data->gpio_en = of_get_named_gpio(np, "backlight-en-gpio", 0);
 	if (!gpio_is_valid(data->gpio_en))
-		data->gpio_en = 214; /* GPIO 214 BL_EN on SM-T560/T561 */
+		data->gpio_en = 155; /* GPIO 155 BL_EN on SM-T560/T561 */
 
 	if (gpio_is_valid(data->gpio_en)) {
 		devm_gpio_request_one(&client->dev, data->gpio_en,

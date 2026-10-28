@@ -412,21 +412,40 @@ static int sci_keypad_probe(struct platform_device *pdev)
 	__raw_writel(value, (void __iomem *)KPD_CTRL);
 
 	if (gpio_is_valid(sci_kpd->pb_gpio)) {
+		int pb_irq;
+		unsigned long trig;
+
 		devm_gpio_request_one(&pdev->dev, sci_kpd->pb_gpio, GPIOF_IN, "powerkey");
-		error = devm_request_irq(&pdev->dev, gpio_to_irq(sci_kpd->pb_gpio),
-					 sci_powerkey_isr,
-					 IRQF_TRIGGER_HIGH | IRQF_NO_SUSPEND,
-					 "powerkey", sci_kpd);
-		if (!error)
-			enable_irq_wake(gpio_to_irq(sci_kpd->pb_gpio));
+		pb_irq = gpio_to_irq(sci_kpd->pb_gpio);
+		if (pb_irq > 0) {
+			trig = gpio_get_value(sci_kpd->pb_gpio) ?
+			       IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH;
+			error = devm_request_irq(&pdev->dev, pb_irq,
+						 sci_powerkey_isr,
+						 trig | IRQF_NO_SUSPEND,
+						 "powerkey", sci_kpd);
+			if (!error)
+				enable_irq_wake(pb_irq);
+		}
 	}
 
 	if (gpio_is_valid(sci_kpd->voldown_gpio)) {
+		int vd_irq;
+		unsigned long trig;
+
 		devm_gpio_request_one(&pdev->dev, sci_kpd->voldown_gpio, GPIOF_IN, "volume down");
-		devm_request_irq(&pdev->dev, gpio_to_irq(sci_kpd->voldown_gpio),
-				 sci_volumedownkey_isr,
-				 IRQF_TRIGGER_HIGH | IRQF_NO_SUSPEND,
-				 "volume down", sci_kpd);
+		vd_irq = gpio_to_irq(sci_kpd->voldown_gpio);
+		if (vd_irq > 0) {
+			trig = gpio_get_value(sci_kpd->voldown_gpio) ?
+			       IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH;
+			error = devm_request_irq(&pdev->dev, vd_irq,
+						 sci_volumedownkey_isr,
+						 trig | IRQF_NO_SUSPEND,
+						 "volume down", sci_kpd);
+			if (error)
+				dev_warn(&pdev->dev, "failed to request voldown irq %d: %d\n",
+					 vd_irq, error);
+		}
 	}
 
 	if (sec_class) {

@@ -48,6 +48,7 @@
 
 #define REG_EIC_IEV		REG_GPIO_IEV
 #define REG_EIC_IE		REG_GPIO_IE
+#define REG_EIC_MIS		REG_GPIO_MIS
 #define REG_EIC_IC		REG_GPIO_IC
 #define REG_EIC_TRIG		0x0028
 
@@ -293,6 +294,22 @@ static void sci_gpio_irq_unmask(struct irq_data *data)
 	sci_gpio_write(chip, offset, REG_GPIO_IE, 1);
 }
 
+static void sci_eic_irq_ack(struct irq_data *data)
+{
+	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
+	int offset = sci_irq_to_gpio(chip, data->irq);
+
+	sci_gpio_write(chip, offset, REG_EIC_IC, 1);
+}
+
+static void sci_eic_irq_mask(struct irq_data *data)
+{
+	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
+	int offset = sci_irq_to_gpio(chip, data->irq);
+
+	sci_gpio_write(chip, offset, REG_EIC_IE, 0);
+}
+
 static void sci_eic_irq_unmask(struct irq_data *data)
 {
 	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
@@ -393,9 +410,9 @@ static struct irq_chip a_gpio_irq_chip = {
 
 static struct irq_chip d_eic_irq_chip = {
 	.name		= "irq-d-eic",
-	.irq_disable	= sci_gpio_irq_mask,
-	.irq_ack	= sci_gpio_irq_ack,
-	.irq_mask	= sci_gpio_irq_mask,
+	.irq_disable	= sci_eic_irq_mask,
+	.irq_ack	= sci_eic_irq_ack,
+	.irq_mask	= sci_eic_irq_mask,
 	.irq_unmask	= sci_eic_irq_unmask,
 	.irq_set_type	= sci_eic_irq_set_type,
 	.irq_set_wake	= sci_gpio_irq_set_wake,
@@ -403,13 +420,33 @@ static struct irq_chip d_eic_irq_chip = {
 
 static struct irq_chip a_eic_irq_chip = {
 	.name		= "irq-a-eic",
-	.irq_disable	= sci_gpio_irq_mask,
-	.irq_ack	= sci_gpio_irq_ack,
-	.irq_mask	= sci_gpio_irq_mask,
+	.irq_disable	= sci_eic_irq_mask,
+	.irq_ack	= sci_eic_irq_ack,
+	.irq_mask	= sci_eic_irq_mask,
 	.irq_unmask	= sci_eic_irq_unmask,
 	.irq_set_type	= sci_eic_irq_set_type,
 	.irq_set_wake	= sci_gpio_irq_set_wake,
 };
+
+static void eic_Ack_and_handle(struct gpio_chip *chip)
+{
+	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
+	int group, n;
+	unsigned long addr;
+	u32 value;
+
+	for (group = 0; group * GPIO_GROUP_NR < chip->ngpio; group++) {
+		addr = sci_gpio->base_addr + sci_gpio->group_offset * group + REG_EIC_MIS;
+		value = sci_gpio->read_reg(addr) & GPIO_GROUP_MASK;
+
+		while (value) {
+			n = __ffs(value);
+			value &= ~(1U << n);
+			sci_gpio_write(chip, group * GPIO_GROUP_NR + n, REG_EIC_IC, 1);
+			generic_handle_irq(chip->to_irq(chip, group * GPIO_GROUP_NR + n));
+		}
+	}
+}
 
 static void gpio_eic_handler(struct gpio_chip *chip)
 {
@@ -438,15 +475,22 @@ static irqreturn_t gpio_muxed_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void gpio_muxed_flow_handler(struct irq_desc *desc)
+static irqreturn_t eic_muxed_handler(int irq, void *dev_id)
 {
-	struct gpio_chip *chip = irq_desc_get_handler_data(desc);
-	struct irq_chip *ic = irq_desc_get_chip(desc);
+	struct gpio_chip *chip = dev_id;
 
-	chained_irq_enter(ic, desc);
-	if (chip)
-		gpio_eic_handler(chip);
-	chained_irq_exit(ic, desc);
+	eic_Ack_and_handle(chip);
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t ana_eic_muxed_handler(int irq, void *dev_id)
+{
+	struct gpio_chip *chip = dev_id;
+	u32 status = sci_adi_read(ANA_REG_INT_MASK_STATUS);
+
+	if (status & BIT(5))
+		eic_Ack_and_handle(chip);
+	return IRQ_HANDLED;
 }
 
 static struct irqaction __d_gpio_irq = {
@@ -459,8 +503,15 @@ static struct irqaction __d_gpio_irq = {
 static struct irqaction __d_eic_irq = {
 	.name		= "eic",
 	.flags		= IRQF_NO_SUSPEND,
-	.handler	= gpio_muxed_handler,
+	.handler	= eic_muxed_handler,
 	.dev_id		= &d_sci_eic.chip,
+};
+
+static struct irqaction __a_eic_irq = {
+	.name		= "ana_eic",
+	.flags		= IRQF_NO_SUSPEND | IRQF_SHARED,
+	.handler	= ana_eic_muxed_handler,
+	.dev_id		= &a_sci_eic.chip,
 };
 
 struct sprd_gpio_match_data {
@@ -484,7 +535,7 @@ static struct sprd_gpio_match_data d_gpio_match = {
 static struct sprd_gpio_match_data a_eic_match = {
 	.sci_gpio_chip	= &a_sci_eic,
 	.irq_chip	= &a_eic_irq_chip,
-	.irqaction	= NULL,
+	.irqaction	= &__a_eic_irq,
 };
 
 static struct sprd_gpio_match_data a_gpio_match = {
@@ -526,8 +577,10 @@ static void gpio_irq_init(int irq, struct gpio_chip *gpiochip,
 	struct irq_domain *irq_domain = sci_gpio->irq_domain;
 	int i, n;
 
-	if (sci_gpio->is_adi_gpio && irq > 0)
-		irq_set_chained_handler_and_data(irq, gpio_muxed_flow_handler, gpiochip);
+	if (sci_gpio->is_adi_gpio && irq > 0) {
+		/* Enable ANA EIC interrupt bit (bit 5) in ANA_REG_INT_EN */
+		sci_adi_set(ANA_REG_INT_EN, BIT(5));
+	}
 
 	for (i = 0; i < gpiochip->ngpio; i++) {
 		n = irq_create_mapping(irq_domain, i);

@@ -96,6 +96,7 @@ struct zt7554_ts_data {
 	struct regulator *reg_vdd;
 	struct regulator *reg_avdd;
 	int gpio_int;
+	int gpio_ldo_en;
 	int irq;
 	u32 max_x;
 	u32 max_y;
@@ -175,6 +176,9 @@ static int zt7554_power_on(struct zt7554_ts_data *ts)
 	u16 chip_code = 0;
 	int retry = 0;
 
+	if (gpio_is_valid(ts->gpio_ldo_en))
+		gpio_direction_output(ts->gpio_ldo_en, 1);
+
 	if (!IS_ERR_OR_NULL(ts->reg_avdd)) {
 		regulator_set_voltage(ts->reg_avdd, 2800000, 2800000);
 		WARN_ON(regulator_enable(ts->reg_avdd));
@@ -184,7 +188,7 @@ static int zt7554_power_on(struct zt7554_ts_data *ts)
 		WARN_ON(regulator_enable(ts->reg_vdd));
 	}
 
-	msleep(200);
+	mdelay(50);
 
 retry_seq:
 	if (zt7554_write_reg(client, 0xc000, 0x0001) < 0)
@@ -206,14 +210,14 @@ retry_seq:
 	if (zt7554_write_reg(client, 0xc001, 0x0001) < 0)
 		goto err_retry;
 
-	msleep(150);
+	mdelay(150);
 	dev_info(&client->dev, "ZT7554 power sequence complete (chip_code=0x%04x)\n",
 		 chip_code);
 	return 0;
 
 err_retry:
 	if (++retry < 3) {
-		msleep(50);
+		mdelay(20);
 		goto retry_seq;
 	}
 	return -EIO;
@@ -346,14 +350,23 @@ static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		ts->gpio_int = of_get_named_gpio(np, "tsp,irq-gpio", 0);
 		if (!gpio_is_valid(ts->gpio_int))
 			ts->gpio_int = of_get_gpio(np, 0);
+		of_property_read_u32(np, "zt7554,x_resolution", &ts->max_x);
+		of_property_read_u32(np, "zt7554,y_resolution", &ts->max_y);
 		of_property_read_u32(np, "tsp,x_resolution", &ts->max_x);
 		of_property_read_u32(np, "tsp,y_resolution", &ts->max_y);
 	}
 	if (!gpio_is_valid(ts->gpio_int))
-		ts->gpio_int = 94; /* GPIO 94 TSP_INT on SM-T560/T561 */
+		ts->gpio_int = 82; /* GPIO 82 TSP_INT on SM-T560/T561 */
 
+	ts->gpio_ldo_en = 156; /* GPIO 156 tsp_ldo 3.3V enable on SM-T560/T561 */
+	if (gpio_is_valid(ts->gpio_ldo_en))
+		devm_gpio_request_one(&client->dev, ts->gpio_ldo_en,
+				      GPIOF_OUT_INIT_HIGH, "tsp_ldo_en");
+
+	ts->reg_vdd = regulator_get(&client->dev, "tsp_vdd");
+	if (IS_ERR(ts->reg_vdd))
+		ts->reg_vdd = regulator_get(NULL, "tsp_ldo");
 	ts->reg_avdd = regulator_get(NULL, "vdd28");
-	ts->reg_vdd = regulator_get(NULL, "vddsim2");
 
 	if (gpio_is_valid(ts->gpio_int)) {
 		devm_gpio_request_one(&client->dev, ts->gpio_int, GPIOF_IN, "tsp_int");

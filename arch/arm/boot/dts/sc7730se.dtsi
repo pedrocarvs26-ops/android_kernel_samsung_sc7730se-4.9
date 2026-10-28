@@ -1,8 +1,13 @@
 /*
  * Spreadtrum SC7730SE SoC Device Tree Include (SCX30G / SCX35 TShark2)
  *
- * Hardware map verified against Samsung SM-T560 / SM-T561 3.10 kernel source
- * (arch/arm/boot/dts/scx35-gtel3g.dts & scx35.dtsi).
+ * Hardware map verified 1:1 against Samsung SM-T560 / SM-T561 3.10 kernel source
+ * (sprd-scx35.dtsi, sprd-scx35_sc7730.dtsi, sprd-scx35_gtelwifi_rev11.dts,
+ *  and sprd-scx35_gtel3g_rev11.dts).
+ *
+ * Peripherals are placed directly under '/' (matching sprd-scx35.dtsi) so
+ * platform device sysfs paths (/devices/platform/sprd-sdhci.3) match Android's
+ * fstab.sc8830 (/dev/block/platform/sprd-sdhci.3/by-name/SYSTEM).
  *
  * Licensed under the GPL-2.
  */
@@ -18,7 +23,7 @@
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
-	compatible = "sprd,sc7730se", "sprd,sc8830", "sprd,sp8830";
+	compatible = "sprd,sc7730se", "sprd,sc8830", "sprd,sp8830", "sprd,scx35";
 	interrupt-parent = <&gic>;
 
 	aliases {
@@ -31,7 +36,9 @@
 		i2c2 = &i2c2;
 		i2c3 = &i2c3;
 		i2c4 = &i2c4;
-		i2c9 = &i2c_gpio9;
+		i2c6 = &i2c_gpio6;
+		i2c7 = &i2c_gpio7;
+		i2c8 = &i2c_gpio8;
 		mmc0 = &sdio3;
 		mmc1 = &sdio0;
 		mmc2 = &sdio1;
@@ -88,311 +95,279 @@
 		interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
 	};
 
-	soc {
-		compatible = "simple-bus";
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
+	/*
+	 * Spreadtrum GPTIMERs (AON_TMR + AP_TMR0..2):
+	 * - 0x40050000 (AON_TMR): CPU0 local timer (SPI 28) + 32768 Hz clocksource
+	 * - 0x40220000 (AP_TMR0): CPU1 local timer (SPI 29) + bctimer (SPI 118)
+	 * - 0x40330000 (AP_TMR1): CPU2 local timer (SPI 119)
+	 * - 0x40340000 (AP_TMR2): CPU3 local timer (SPI 121)
+	 */
+	gptimer: timer@40050000 {
+		compatible = "sprd,sc7730se-timer", "sprd,sc8830-timer", "sprd,scx35-timer";
+		reg = <0x40050000 0x100>,
+		      <0x40220000 0x100>,
+		      <0x40330000 0x100>,
+		      <0x40340000 0x100>;
+		interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
+		clock-frequency = <32768>;
+	};
 
-		/*
-		 * Spreadtrum GPTIMERs (AON_TMR + AP_TMR0..2):
-		 * - 0x40050000 (AON_TMR): CPU0 local timer (SPI 28) + 32768 Hz clocksource
-		 * - 0x40220000 (AP_TMR0): CPU1 local timer (SPI 29) + bctimer (SPI 118)
-		 * - 0x40330000 (AP_TMR1): CPU2 local timer (SPI 119)
-		 * - 0x40340000 (AP_TMR2): CPU3 local timer (SPI 121)
-		 */
-		gptimer: timer@40050000 {
-			compatible = "sprd,sc7730se-timer", "sprd,sc8830-timer", "sprd,scx35-timer";
-			reg = <0x40050000 0x100>,
-			      <0x40220000 0x100>,
-			      <0x40330000 0x100>,
-			      <0x40340000 0x100>;
-			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
-			clock-frequency = <32768>;
+	/*
+	 * Spreadtrum SYSCNT (0x40230000): 1000 Hz millisecond counter
+	 */
+	syscnt: syscnt@40230000 {
+		compatible = "sprd,sc7730se-syscnt", "sprd,sc8830-syscnt";
+		reg = <0x40230000 0x100>;
+		interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
+		clock-frequency = <1000>;
+	};
+
+	/*
+	 * D-Die & A-Die GPIO and EIC Controllers (matching sprd-scx35.dtsi)
+	 * - d_gpio: base 0, ngpios 256, GIC_SPI 35
+	 * - a_gpio: base 256, ngpios 32
+	 * - d_eic:  base 288, ngpios 16, GIC_SPI 37
+	 * - a_eic:  base 304, ngpios 16, GIC_SPI 38 (ANA_INT)
+	 */
+	d_gpio: gpio@40280000 {
+		compatible = "sprd,d-gpio-gpio";
+		reg = <0x40280000 0x1000>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		gpiobase = <0>;
+		ngpios = <256>;
+		interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	d_eic: gpio@40210000 {
+		compatible = "sprd,d-eic-gpio";
+		reg = <0x40210000 0x1000>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		gpiobase = <288>;
+		ngpios = <16>;
+		interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	a_eic: gpio@40038100 {
+		compatible = "sprd,a-eic-gpio";
+		reg = <0x40038100 0x100>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		gpiobase = <304>;
+		ngpios = <16>;
+		interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	a_gpio: gpio@40038480 {
+		compatible = "sprd,a-gpio-gpio";
+		reg = <0x40038480 0x100>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		gpiobase = <256>;
+		ngpios = <32>;
+	};
+
+	/*
+	 * Spreadtrum Keypad Controller (0x40250000, GIC_SPI 36)
+	 * Matching sprd-scx35_gtelwifi_rev11.dts / sprd-scx35_gtel3g_rev11.dts
+	 */
+	keypad: keypad@40250000 {
+		compatible = "sprd,sci-keypad";
+		reg = <0x40250000 0x1000>;
+		interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
+		sprd,keypad-num-rows = <2>;
+		sprd,keypad-num-columns = <3>;
+		sprd,keypad-rows-choose-hw = <0x30000>;
+		sprd,keypad-cols-choose-hw = <0x600>;
+		sprd,debounce_time = <5000>;
+		linux,input-no-autorepeat;
+		linux,input-wakeup;
+		gpios = <&a_eic 2 0>, <&a_eic 10 0>;
+
+		key_volume_down {
+			keypad,row = <1>;
+			keypad,column = <0>;
+			linux,code = <KEY_VOLUMEDOWN>;
 		};
 
-		/*
-		 * Spreadtrum SYSCNT (0x40230000): 1000 Hz millisecond counter
-		 */
-		syscnt: syscnt@40230000 {
-			compatible = "sprd,sc7730se-syscnt", "sprd,sc8830-syscnt";
-			reg = <0x40230000 0x100>;
-			interrupts = <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
-			clock-frequency = <1000>;
+		key_volume_up {
+			keypad,row = <0>;
+			keypad,column = <2>;
+			linux,code = <KEY_VOLUMEUP>;
 		};
 
-		/*
-		 * D-Die & A-Die GPIO and EIC Controllers (matching 3.10 gpiobase numbering)
-		 */
-		d_gpio: gpio@40280000 {
-			compatible = "sprd,d-gpio-gpio";
-			reg = <0x40280000 0x1000>;
-			gpio-controller;
-			#gpio-cells = <2>;
-			interrupt-controller;
-			#interrupt-cells = <2>;
-			gpiobase = <0>;
-			ngpios = <240>;
-			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		d_eic: gpio@40210000 {
-			compatible = "sprd,d-eic-gpio";
-			reg = <0x40210000 0x1000>;
-			gpio-controller;
-			#gpio-cells = <2>;
-			interrupt-controller;
-			#interrupt-cells = <2>;
-			gpiobase = <304>;
-			ngpios = <16>;
-			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		a_eic: gpio@40038100 {
-			compatible = "sprd,a-eic-gpio";
-			reg = <0x40038100 0x100>;
-			gpio-controller;
-			#gpio-cells = <2>;
-			interrupt-controller;
-			#interrupt-cells = <2>;
-			gpiobase = <320>;
-			ngpios = <16>;
-		};
-
-		a_gpio: gpio@40038480 {
-			compatible = "sprd,a-gpio-gpio";
-			reg = <0x40038480 0x100>;
-			gpio-controller;
-			#gpio-cells = <2>;
-			interrupt-controller;
-			#interrupt-cells = <2>;
-			gpiobase = <272>;
-			ngpios = <32>;
-		};
-
-		/*
-		 * Spreadtrum Keypad Controller (0x40250000) + Power / VolDown EIC keys
-		 */
-		keypad: keypad@40250000 {
-			compatible = "sprd,sci-keypad";
-			reg = <0x40250000 0x100>;
-			interrupts = <GIC_SPI 37 IRQ_TYPE_NONE>;
-			sprd,keypad-num-rows = <8>;
-			sprd,keypad-num-columns = <8>;
-			sprd,keypad-rows-choose-hw = <0x30000>;
-			sprd,keypad-cols-choose-hw = <0x700>;
-			sprd,debounce_time = <5000>;
-			linux,input-no-autorepeat;
-			linux,input-wakeup;
-			sprd,support_long_key;
-			gpios = <&a_eic 1 0>, <&a_eic 10 0>, <&d_gpio 167 0>;
-
-			key_1 {
-				keypad,row = <0>;
-				keypad,column = <0>;
-				linux,code = <KEY_VOLUMEDOWN>;
-			};
-
-			key_2 {
-				keypad,row = <1>;
-				keypad,column = <0>;
-				linux,code = <KEY_VOLUMEUP>;
-			};
-
-			key_3 {
-				keypad,row = <0>;
-				keypad,column = <1>;
-				linux,code = <KEY_HOME>;
-			};
-		};
-
-		/*
-		 * Spreadtrum UARTs (0x70000000..0x70300000)
-		 */
-		uart0: serial@70000000 {
-			compatible = "sprd,sc8830-uart";
-			reg = <0x70000000 0x100>;
-			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_26m>;
-			status = "okay";
-		};
-
-		uart1: serial@70100000 {
-			compatible = "sprd,sc8830-uart";
-			reg = <0x70100000 0x100>;
-			interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_26m>;
-			status = "okay";
-		};
-
-		uart2: serial@70200000 {
-			compatible = "sprd,sc8830-uart";
-			reg = <0x70200000 0x100>;
-			interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_26m>;
-			status = "disabled";
-		};
-
-		uart3: serial@70300000 {
-			compatible = "sprd,sc8830-uart";
-			reg = <0x70300000 0x100>;
-			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_26m>;
-			status = "disabled";
-		};
-
-		/*
-		 * Spreadtrum Hardware I2C Controllers (0x70500000..0x70900000)
-		 */
-		i2c0: i2c@70500000 {
-			compatible = "sprd,i2c", "sprd,sp8830-i2c";
-			reg = <0x70500000 0x1000>;
-			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_i2c0>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "okay";
-		};
-
-		i2c1: i2c@70600000 {
-			compatible = "sprd,i2c", "sprd,sp8830-i2c";
-			reg = <0x70600000 0x1000>;
-			interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_i2c1>;
-			clock-frequency = <400000>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "okay";
-
-			zt7554_ts@20 {
-				compatible = "zinitix,zt7554_ts";
-				reg = <0x20>;
-				tsp,irq-gpio = <&d_gpio 94 0>;
-				tsp,x_resolution = <800>;
-				tsp,y_resolution = <1280>;
-				tsp,page_size = <128>;
-				tsp,orientation = <0>;
-				tsp,core_num = <2>;
-			};
-		};
-
-		i2c2: i2c@70700000 {
-			compatible = "sprd,i2c", "sprd,sp8830-i2c";
-			reg = <0x70700000 0x1000>;
-			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_i2c2>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "okay";
-		};
-
-		i2c3: i2c@70800000 {
-			compatible = "sprd,i2c", "sprd,sp8830-i2c";
-			reg = <0x70800000 0x1000>;
-			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_i2c3>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "disabled";
-		};
-
-		i2c4: i2c@70900000 {
-			compatible = "sprd,i2c", "sprd,sp8830-i2c";
-			reg = <0x70900000 0x1000>;
-			interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_i2c4>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			status = "okay";
-		};
-
-		/*
-		 * Spreadtrum SDHCI Controllers (eMMC, SD, Wi-Fi SDIO)
-		 */
-		sdio3: sdhci@20600000 {
-			compatible = "sprd,sdhci-shark";
-			id = <3>;
-			reg = <0x20600000 0x1000>;
-			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_emmc>, <&clk_384m>;
-			max-frequency = <192000000>;
-			bus-width = <8>;
-			enb-reg = <0x20d00000>;
-			enb-bit = <0x800>;
-			rst-reg = <0x20d00004>;
-			rst-bit = <0x4000>;
-			write-delay = <0x06>;
-			read-pos-delay = <0x07>;
-			read-neg-delay = <0x07>;
-			vdd-vmmc = "vddemmccore";
-			sdhci-cap-1v8-ddr;
-			sdhci-cap2-hc-erase-sz;
-			non-removable;
-			keep-power = <1>;
-			runtime = <1>;
-			status = "okay";
-		};
-
-		sdio0: sdhci@20300000 {
-			compatible = "sprd,sdhci-shark";
-			id = <0>;
-			reg = <0x20300000 0x1000>;
-			interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_sdio0>, <&clk_192m>;
-			max-frequency = <96000000>;
-			bus-width = <4>;
-			enb-reg = <0x20d00000>;
-			enb-bit = <0x100>;
-			rst-reg = <0x20d00004>;
-			rst-bit = <0x800>;
-			write-delay = <0x08>;
-			read-pos-delay = <0x08>;
-			read-neg-delay = <0x08>;
-			vdd-vmmc = "vddsdcore";
-			vdd-vqmmc = "vddsdio";
-			vqmmc-voltage-level = <3000000>;
-			cd-gpios = <205>;
-			sdhci-cap-hw-reset;
-			keep-power = <0>;
-			runtime = <1>;
-			status = "okay";
-		};
-
-		sdio1: sdhci@20400000 {
-			compatible = "sprd,sdhci-shark";
-			id = <1>;
-			reg = <0x20400000 0x1000>;
-			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_sdio1>, <&clk_96m>;
-			max-frequency = <48000000>;
-			bus-width = <4>;
-			enb-reg = <0x20d00000>;
-			enb-bit = <0x200>;
-			rst-reg = <0x20d00004>;
-			rst-bit = <0x1000>;
-			write-delay = <0x03>;
-			read-pos-delay = <0x05>;
-			read-neg-delay = <0x05>;
-			non-removable;
-			keep-power = <1>;
-			runtime = <1>;
-			status = "okay";
+		key_home {
+			keypad,row = <0>;
+			keypad,column = <1>;
+			linux,code = <KEY_HOME>;
 		};
 	};
 
 	/*
-	 * Bit-banged I2C9 for Richtek RT8555 Backlight Controller (SDA=GPIO188, SCL=GPIO189)
+	 * Spreadtrum UARTs (0x70000000..0x70300000)
 	 */
-	i2c_gpio9: i2c-gpio-9 {
+	uart0: serial@70000000 {
+		compatible = "sprd,sc8830-uart";
+		reg = <0x70000000 0x100>;
+		interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ext_26m>;
+		status = "okay";
+	};
+
+	uart1: serial@70100000 {
+		compatible = "sprd,sc8830-uart";
+		reg = <0x70100000 0x100>;
+		interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ext_26m>;
+		status = "okay";
+	};
+
+	uart2: serial@70200000 {
+		compatible = "sprd,sc8830-uart";
+		reg = <0x70200000 0x100>;
+		interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ext_26m>;
+		status = "disabled";
+	};
+
+	uart3: serial@70300000 {
+		compatible = "sprd,sc8830-uart";
+		reg = <0x70300000 0x100>;
+		interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&ext_26m>;
+		status = "disabled";
+	};
+
+	/*
+	 * Zinitix ZT7554 3.3V LDO regulator (GPIO 156 active-high)
+	 */
+	tsp_ldo: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "tsp_ldo";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&d_gpio 156 0>;
+		enable-active-high;
+		regulator-always-on;
+	};
+
+	/*
+	 * Spreadtrum Hardware I2C Controllers (0x70500000..0x70900000)
+	 */
+	i2c0: i2c@70500000 {
+		compatible = "sprd,i2c", "sprd,sp8830-i2c";
+		reg = <0x70500000 0x1000>;
+		interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_i2c0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	i2c1: i2c@70600000 {
+		compatible = "sprd,i2c", "sprd,sp8830-i2c";
+		reg = <0x70600000 0x1000>;
+		interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_i2c1>;
+		clock-frequency = <400000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		zt7554_ts@20 {
+			compatible = "zinitix,zt7554_ts";
+			reg = <0x20>;
+			gpios = <&d_gpio 82 0>;
+			tsp,irq-gpio = <&d_gpio 82 0>;
+			tsp_vendor_1 = <&d_gpio 81 0>;
+			tsp_vendor_2 = <&d_gpio 83 0>;
+			zt7554,x_resolution = <799>;
+			zt7554,y_resolution = <1279>;
+			tsp,x_resolution = <800>;
+			tsp,y_resolution = <1280>;
+			tsp_vdd-supply = <&tsp_ldo>;
+			zt7554,core_num = <4>;
+			zt7554,model_name = "T560";
+		};
+	};
+
+	i2c2: i2c@70700000 {
+		compatible = "sprd,i2c", "sprd,sp8830-i2c";
+		reg = <0x70700000 0x1000>;
+		interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_i2c2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	i2c3: i2c@70800000 {
+		compatible = "sprd,i2c", "sprd,sp8830-i2c";
+		reg = <0x70800000 0x1000>;
+		interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_i2c3>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	i2c4: i2c@70900000 {
+		compatible = "sprd,i2c", "sprd,sp8830-i2c";
+		reg = <0x70900000 0x1000>;
+		interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_i2c4>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	/*
+	 * Bit-banged GPIO I2C buses from sprd-scx35_gtelwifi_rev11.dts:
+	 * - i2c_gpio6: SMB358 charger (SDA=GPIO159, SCL=GPIO160)
+	 * - i2c_gpio7: SM5504 MUIC (SDA=GPIO150, SCL=GPIO151)
+	 * - i2c_gpio8: Richtek RT8555 Backlight (SDA=GPIO66, SCL=GPIO65, EN=GPIO155)
+	 */
+	i2c_gpio6: i2c-gpio-6 {
 		compatible = "i2c-gpio";
-		gpios = <&d_gpio 188 0 /* sda */
-			 &d_gpio 189 0 /* scl */>;
+		gpios = <&d_gpio 159 0 /* sda */
+			 &d_gpio 160 0 /* scl */>;
 		i2c-gpio,delay-us = <10>;
-		i2c-gpio,timeout-ms = <100>;
+		i2c-gpio,timeout-ms = <0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	i2c_gpio7: i2c-gpio-7 {
+		compatible = "i2c-gpio";
+		gpios = <&d_gpio 150 0 /* sda */
+			 &d_gpio 151 0 /* scl */>;
+		i2c-gpio,delay-us = <10>;
+		i2c-gpio,timeout-ms = <0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	i2c_gpio8: i2c-gpio-8 {
+		compatible = "i2c-gpio";
+		gpios = <&d_gpio 66 0 /* sda */
+			 &d_gpio 65 0 /* scl */>;
+		i2c-gpio,delay-us = <4>;
+		i2c-gpio,timeout-ms = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "okay";
@@ -400,10 +375,85 @@
 		rt8555_bl@31 {
 			compatible = "Richtek, RT8555";
 			reg = <0x31>;
-			backlight-ic-name = "RT8555";
-			backlight,scl-gpio = <&d_gpio 189 0>;
-			backlight,sda-gpio = <&d_gpio 188 0>;
-			backlight-en-gpio = <&d_gpio 214 0>;
+			backlight-ic-name = "RICHTEK-RT8555";
+			backlight,scl-gpio = <&d_gpio 65 0>;
+			backlight,sda-gpio = <&d_gpio 66 0>;
+			backlight-en-gpio = <&d_gpio 155 GPIO_ACTIVE_HIGH>;
 		};
+	};
+
+	/*
+	 * Spreadtrum SDHCI Controllers (eMMC, SD, Wi-Fi SDIO)
+	 * Placed directly under '/' so devpath is /devices/platform/sprd-sdhci.{0,1,3}
+	 */
+	sdio3: sdhci@20600000 {
+		compatible = "sprd,sdhci-shark";
+		id = <3>;
+		reg = <0x20600000 0x1000>;
+		interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_emmc>, <&clk_384m>;
+		max-frequency = <192000000>;
+		bus-width = <8>;
+		enb-reg = <0x20d00000>;
+		enb-bit = <0x800>;
+		rst-reg = <0x20d00004>;
+		rst-bit = <0x4000>;
+		write-delay = <0x08>;
+		read-pos-delay = <0x04>;
+		read-neg-delay = <0x04>;
+		vdd-vmmc = "vddemmccore";
+		vdd-vqmmc = "vddgen0";
+		sdhci-cap-1v8-ddr;
+		sdhci-cap2-hc-erase-sz;
+		non-removable;
+		keep-power = <1>;
+		runtime = <1>;
+		status = "okay";
+	};
+
+	sdio0: sdhci@20300000 {
+		compatible = "sprd,sdhci-shark";
+		id = <0>;
+		reg = <0x20300000 0x1000>;
+		interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_sdio0>, <&clk_192m>;
+		max-frequency = <96000000>;
+		bus-width = <4>;
+		enb-reg = <0x20d00000>;
+		enb-bit = <0x100>;
+		rst-reg = <0x20d00004>;
+		rst-bit = <0x800>;
+		write-delay = <0x08>;
+		read-pos-delay = <0x08>;
+		read-neg-delay = <0x08>;
+		vdd-vmmc = "vddsdcore";
+		vdd-vqmmc = "vddsdcore";
+		vqmmc-voltage-level = <3000000>;
+		cd-gpios = <&d_gpio 71 GPIO_ACTIVE_LOW>;
+		sdhci-cap-hw-reset;
+		keep-power = <0>;
+		runtime = <1>;
+		status = "okay";
+	};
+
+	sdio1: sdhci@20400000 {
+		compatible = "sprd,sdhci-shark";
+		id = <1>;
+		reg = <0x20400000 0x1000>;
+		interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_sdio1>, <&clk_96m>;
+		max-frequency = <48000000>;
+		bus-width = <4>;
+		enb-reg = <0x20d00000>;
+		enb-bit = <0x200>;
+		rst-reg = <0x20d00004>;
+		rst-bit = <0x1000>;
+		write-delay = <0x03>;
+		read-pos-delay = <0x05>;
+		read-neg-delay = <0x05>;
+		non-removable;
+		keep-power = <1>;
+		runtime = <1>;
+		status = "okay";
 	};
 };
