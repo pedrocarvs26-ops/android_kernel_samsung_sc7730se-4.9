@@ -1,41 +1,20 @@
 /dts-v1/;
 
 /*
- * Samsung Galaxy Tab E 9.6 3G (SM-T561, "gtel3g")
- * Spreadtrum SC7730SE, 1.5 GB RAM, 800x1280 panel, SC2723 PMIC.
+ * Samsung Galaxy Tab E 9.6 3G (SM-T561 / gtel3g) Device Tree
  *
- * This file is dual-licensed: GPL-2.0 or X11.
+ * Includes full Spreadtrum SC7730SE SoC peripherals, clocks, SC2723 PMIC
+ * regulators, SDHCI eMMC/SD/Wi-Fi, Zinitix ZT7554 touchscreen, RT8555
+ * backlight, keypad, simplefb, ramoops, and Samsung sec_log (/proc/last_kmsg).
+ *
+ * Licensed under the GPL-2.
  */
 
 #include "sc7730se.dtsi"
 
 / {
-	model = "Samsung Galaxy Tab E 9.6 3G (SM-T561)";
-	compatible = "samsung,gtel3g", "sprd,sc7730se";
-
-	chosen {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
-
-		stdout-path = "serial1:115200n8";
-		bootargs = "console=tty0 console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
-
-		/*
-		 * Kernel log on the panel the bootloader already initialised
-		 * (lcd_base=0x9ea44000, the fb_reserved carve-out below); see the
-		 * longer comment in sc7730se-gtelwifi.dts. Swap to 1280/800/5120
-		 * if the text comes out sheared.
-		 */
-		framebuffer@9ea44000 {
-			compatible = "simple-framebuffer";
-			reg = <0x9ea44000 0x00bb8000>;
-			width = <800>;
-			height = <1280>;
-			stride = <3200>;
-			format = "a8r8g8b8";
-		};
-	};
+	model = "Samsung Galaxy Tab E 9.6 3G (SM-T561, gtel3g)";
+	compatible = "samsung,gtel3g", "sprd,sc7730se", "sprd,sc8830", "sprd,sp8830";
 
 	memory@80000000 {
 		device_type = "memory";
@@ -47,49 +26,44 @@
 		#size-cells = <1>;
 		ranges;
 
-		/*
-		 * Persistent kernel log: the top megabyte of the modem window, the
-		 * only region that is both reserved by the recovery kernel and
-		 * still readable from it. The bootloader's own sec_log window at
-		 * 0x86b00000 resets the device when read from TWRP; see
-		 * docs/DEBUG-TWRP.md and the longer comment in
-		 * sc7730se-gtelwifi.dts.
-		 */
-		ramoops@89b00000 {
+		/* Samsung S-Boot & TWRP /proc/last_kmsg buffer (sec_log=0xffe00@0x86b00000) */
+		seclog_reserved: sec_log@86b00000 {
+			reg = <0x86b00000 0x00100000>;
+			no-map;
+		};
+
+		/* Linux pstore/ramoops persistent crash log at 0x89b00000 */
+		ramoops: ramoops@89b00000 {
 			compatible = "ramoops";
-			reg = <0x89b00000 0x100000>;
-			console-size = <0x100000>;
-			record-size = <0>;
-			ecc-size = <0>;
+			reg = <0x89b00000 0x00100000>;
+			record-size = <0x00020000>;
+			console-size = <0x00040000>;
+			ftrace-size = <0x00020000>;
+			pmsg-size = <0x00020000>;
+			unbuffered;
 		};
 
-		smem_reserved: smem@87800000 {
-			reg = <0x87800000 0x240000>;
-			no-map;
-		};
-
-		/* the CP window runs to 0x89c00000; the top MiB is the RAM console */
-		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1b00000>;
-			no-map;
-		};
-
+		/* S-Boot pre-initialized 800x1280x32bpp display framebuffer */
 		fb_reserved: framebuffer@9ea44000 {
-			reg = <0x9ea44000 0x00bb8000>;
-			no-map;
-		};
-
-		ion_reserved: ion@9f5fc000 {
-			reg = <0x9f5fc000 0x007d4000>;
+			reg = <0x9ea44000 0x00400000>;
 			no-map;
 		};
 	};
-};
 
-&uart0 {
-	status = "okay";
-};
+	chosen {
+		bootargs = "console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk ignore_loglevel panic=10 root=/dev/mmcblk0p20 rw rootwait init=/init androidboot.hardware=sc8830";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
 
-&uart1 {
-	status = "okay";
+		framebuffer0: framebuffer@9ea44000 {
+			compatible = "simple-framebuffer";
+			reg = <0x9ea44000 (800 * 1280 * 4)>;
+			width = <800>;
+			height = <1280>;
+			stride = <(800 * 4)>;
+			format = "a8r8g8b8";
+			status = "okay";
+		};
+	};
 };

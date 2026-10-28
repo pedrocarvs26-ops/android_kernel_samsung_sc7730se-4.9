@@ -4,8 +4,11 @@ menuconfig ARCH_SPRD
 	select ARM_GIC
 	select COMMON_CLK
 	select GENERIC_IRQ_CHIP
-	select HAVE_ARM_SCU if SMP
+	select GPIOLIB
+	select IRQ_DOMAIN
 	select MFD_SYSCON
+	select OF_GPIO
+	select PINCTRL
 	select SPRD_TIMER
 	help
 	  Support for Spreadtrum (UNISOC) 32-bit ARMv7 SoCs.
@@ -13,17 +16,18 @@ menuconfig ARCH_SPRD
 if ARCH_SPRD
 
 config ARCH_SC7730SE
-	bool "Spreadtrum SC7730SE / SC8830 (scx35) family"
+	bool "Spreadtrum SC7730SE / SC8830 (scx35 / scx30g) family"
 	default y
 	select ARM_ERRATA_764369 if SMP
-	select PINCTRL
 	help
-	  Support for the Spreadtrum SC7730SE (SC8830 "shark"/scx35 family)
+	  Support for the Spreadtrum SC7730SE (SC8830 "shark"/scx35/scx30g family)
 	  quad Cortex-A7 SoC, as found in the Samsung Galaxy Tab E 9.6
 	  (SM-T560 "gtelwifi" and SM-T561 "gtel3g").
 
-	  The SoC has no PSCI firmware, so secondary CPUs are brought up by
-	  mach-sprd/platsmp.c through the PMU_APB power domains and the
-	  AP_AHB CPU jump registers.
+	  Note: Cortex-A7 MPCore has no SCU MMIO block at PERIPHBASE+0x0000
+	  (0x12000000 is reserved and aborts on access). Secondary CPUs are
+	  brought up by mach-sprd/platsmp.c through the PMU_APB power domains
+	  and the SCX30G AP_AHB holding pen (0x14) and CPU jump (0x18..0x24)
+	  registers.
 
 endif

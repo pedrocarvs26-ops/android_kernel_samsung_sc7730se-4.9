@@ -1,17 +1,16 @@
 /*
- * Copyright (C) 2026 SC7730SE mainline-ish port
+ * Spreadtrum SC7730SE / SC8830 (SCX35 / SCX30G) Platform Internal Header
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Licensed under the GPL-2.
  */
-#ifndef __MACH_SPRD_CORE_H
-#define __MACH_SPRD_CORE_H
 
-#include <linux/init.h>
+#ifndef __ARCH_ARM_MACH_SPRD_CORE_H
+#define __ARCH_ARM_MACH_SPRD_CORE_H
 
-struct smp_operations;
+#include <linux/reboot.h>
 
-extern const struct smp_operations sprd_smp_ops;
+void __init sprd_early_console_map_io(void);
+void __init sprd_init_irq(void);
+void sprd_restart(enum reboot_mode mode, const char *cmd);
 
-#endif /* __MACH_SPRD_CORE_H */
+#endif /* __ARCH_ARM_MACH_SPRD_CORE_H */

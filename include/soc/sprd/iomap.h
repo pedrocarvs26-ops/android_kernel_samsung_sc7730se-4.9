@@ -1,0 +1,451 @@
+/*
+ * Spreadtrum SC7730SE / SC8830 (SCX30G / SCX35) Static I/O Map & Global Registers
+ *
+ * Maps critical Spreadtrum SoC MMIO regions into virtual addresses starting at
+ * SCI_IOMAP_BASE (0xF5000000), matching the reference 3.10 mach-sc layout while
+ * remaining compatible with standard Linux 4.9 DT/ioremap drivers.
+ *
+ * Licensed under the GPL-2.
+ */
+
+#ifndef __SOC_SPRD_IOMAP_H
+#define __SOC_SPRD_IOMAP_H
+
+#include <linux/types.h>
+#include <linux/io.h>
+#include <linux/bitops.h>
+
+#define SCI_IOMAP_BASE			0xF5000000UL
+#define SCI_IOMAP(x)			(SCI_IOMAP_BASE + (x))
+
+#ifndef SCI_ADDR
+#define SCI_ADDR(_b_, _o_)		((unsigned long)(_b_) + (_o_))
+#endif
+
+#define SPRD_DEV_P2V(paddr)		((void __iomem *)((unsigned long)(paddr)))
+
+/* Physical/Virtual I/O map entries (must match sprd_io_desc[] in sprd.c) */
+#define SPRD_CORE_BASE			SCI_IOMAP(0x00000000)
+#define SPRD_CORE_PHYS			0x12000000UL
+#define SPRD_CORE_SIZE			SZ_64K
+
+#define SPRD_DMA0_BASE			SCI_IOMAP(0x00112000)
+#define SPRD_DMA0_PHYS			0x20100000UL
+#define SPRD_DMA0_SIZE			SZ_16K
+
+#define SPRD_USB_BASE			SCI_IOMAP(0x00116000)
+#define SPRD_USB_PHYS			0x20200000UL
+#define SPRD_USB_SIZE			SZ_4K
+
+#define SPRD_SDIO0_BASE			SCI_IOMAP(0x00117000)
+#define SPRD_SDIO0_PHYS			0x20300000UL
+#define SPRD_SDIO0_SIZE			SZ_4K
+
+#define SPRD_SDIO1_BASE			SCI_IOMAP(0x00118000)
+#define SPRD_SDIO1_PHYS			0x20400000UL
+#define SPRD_SDIO1_SIZE			SZ_4K
+
+#define SPRD_SDIO2_BASE			SCI_IOMAP(0x00119000)
+#define SPRD_SDIO2_PHYS			0x20500000UL
+#define SPRD_SDIO2_SIZE			SZ_4K
+
+#define SPRD_EMMC_BASE			SCI_IOMAP(0x0011a000)
+#define SPRD_EMMC_PHYS			0x20600000UL
+#define SPRD_EMMC_SIZE			SZ_4K
+
+#define SPRD_DISPC0_BASE		SCI_IOMAP(0x00120000)
+#define SPRD_DISPC0_PHYS		0x20700000UL
+#define SPRD_DISPC0_SIZE		SZ_4K
+
+#define SPRD_AHB_BASE			SCI_IOMAP(0x00200000)
+#define SPRD_AHB_PHYS			0x20D00000UL
+#define SPRD_AHB_SIZE			SZ_64K
+
+#define SPRD_AONCKG_BASE		SCI_IOMAP(0x00248000)
+#define SPRD_AONCKG_PHYS		0x402D0000UL
+#define SPRD_AONCKG_SIZE		SZ_4K
+
+#define SPRD_GPUCKG_BASE		SCI_IOMAP(0x0024a000)
+#define SPRD_GPUCKG_PHYS		0x60200000UL
+#define SPRD_GPUCKG_SIZE		SZ_4K
+
+#define SPRD_MMCKG_BASE			SCI_IOMAP(0x00250000)
+#define SPRD_MMCKG_PHYS			0x60D00000UL
+#define SPRD_MMCKG_SIZE			SZ_4K
+
+#define SPRD_INT_BASE			SCI_IOMAP(0x00254000)
+#define SPRD_INT_PHYS			0x40200000UL
+#define SPRD_INT_SIZE			SZ_4K
+
+#define SPRD_EIC_BASE			SCI_IOMAP(0x00256000)
+#define SPRD_EIC_PHYS			0x40210000UL
+#define SPRD_EIC_SIZE			SZ_4K
+
+#define SPRD_EFUSE_BASE			SCI_IOMAP(0x00258000)
+#define SPRD_EFUSE_PHYS			0x40240000UL
+#define SPRD_EFUSE_SIZE			SZ_4K
+
+#define SPRD_KPD_BASE			SCI_IOMAP(0x0025a000)
+#define SPRD_KPD_PHYS			0x40250000UL
+#define SPRD_KPD_SIZE			SZ_4K
+
+#define SPRD_SYSCNT_BASE		SCI_IOMAP(0x0025c000)
+#define SPRD_SYSCNT_PHYS		0x40230000UL
+#define SPRD_SYSCNT_SIZE		SZ_4K
+
+#define SPRD_UIDEFUSE_BASE		SCI_IOMAP(0x0025e000)
+#define SPRD_UIDEFUSE_PHYS		0x40240000UL
+#define SPRD_UIDEFUSE_SIZE		SZ_4K
+
+#define SPRD_PWM_BASE			SCI_IOMAP(0x00260000)
+#define SPRD_PWM_PHYS			0x40260000UL
+#define SPRD_PWM_SIZE			SZ_4K
+
+#define SPRD_WDG_BASE			SCI_IOMAP(0x00262000)
+#define SPRD_WDG_PHYS			0x40270000UL
+#define SPRD_WDG_SIZE			SZ_4K
+
+#define SPRD_GPIO_BASE			SCI_IOMAP(0x00280000)
+#define SPRD_GPIO_PHYS			0x40280000UL
+#define SPRD_GPIO_SIZE			SZ_64K
+
+#define SPRD_PIN_BASE			SCI_IOMAP(0x00290000)
+#define SPRD_PIN_PHYS			0x402A0000UL
+#define SPRD_PIN_SIZE			SZ_4K
+
+#define SPRD_PMU_BASE			SCI_IOMAP(0x002a0000)
+#define SPRD_PMU_PHYS			0x402B0000UL
+#define SPRD_PMU_SIZE			SZ_64K
+
+#define SPRD_IPI_BASE			SCI_IOMAP(0x002b0000)
+#define SPRD_IPI_PHYS			0x402C0000UL
+#define SPRD_IPI_SIZE			SZ_4K
+
+#define SPRD_AONAPB_BASE		SCI_IOMAP(0x002c0000)
+#define SPRD_AONAPB_PHYS		0x402E0000UL
+#define SPRD_AONAPB_SIZE		SZ_64K
+
+#define SPRD_APBCKG_BASE		SCI_IOMAP(0x00300000)
+#define SPRD_APBCKG_PHYS		0x71200000UL
+#define SPRD_APBCKG_SIZE		SZ_4K
+
+#define SPRD_UART0_BASE			SCI_IOMAP(0x00302000)
+#define SPRD_UART0_PHYS			0x70000000UL
+#define SPRD_UART0_SIZE			SZ_4K
+
+#define SPRD_UART1_BASE			SCI_IOMAP(0x00304000)
+#define SPRD_UART1_PHYS			0x70100000UL
+#define SPRD_UART1_SIZE			SZ_4K
+
+#define SPRD_UART2_BASE			SCI_IOMAP(0x00306000)
+#define SPRD_UART2_PHYS			0x70200000UL
+#define SPRD_UART2_SIZE			SZ_4K
+
+#define SPRD_UART3_BASE			SCI_IOMAP(0x00308000)
+#define SPRD_UART3_PHYS			0x70300000UL
+#define SPRD_UART3_SIZE			SZ_4K
+
+#define SPRD_UART4_BASE			SCI_IOMAP(0x0030a000)
+#define SPRD_UART4_PHYS			0x70400000UL
+#define SPRD_UART4_SIZE			SZ_4K
+
+#define SPRD_I2C0_BASE			SCI_IOMAP(0x0030c000)
+#define SPRD_I2C0_PHYS			0x70500000UL
+#define SPRD_I2C0_SIZE			SZ_4K
+
+#define SPRD_I2C1_BASE			SCI_IOMAP(0x0030e000)
+#define SPRD_I2C1_PHYS			0x70600000UL
+#define SPRD_I2C1_SIZE			SZ_4K
+
+#define SPRD_I2C2_BASE			SCI_IOMAP(0x00310000)
+#define SPRD_I2C2_PHYS			0x70700000UL
+#define SPRD_I2C2_SIZE			SZ_4K
+
+#define SPRD_I2C3_BASE			SCI_IOMAP(0x00312000)
+#define SPRD_I2C3_PHYS			0x70800000UL
+#define SPRD_I2C3_SIZE			SZ_4K
+
+#define SPRD_I2C4_BASE			SCI_IOMAP(0x00314000)
+#define SPRD_I2C4_PHYS			0x70900000UL
+#define SPRD_I2C4_SIZE			SZ_4K
+
+#define SPRD_SPI0_BASE			SCI_IOMAP(0x00316000)
+#define SPRD_SPI0_PHYS			0x70A00000UL
+#define SPRD_SPI0_SIZE			SZ_4K
+
+#define SPRD_SPI1_BASE			SCI_IOMAP(0x00318000)
+#define SPRD_SPI1_PHYS			0x70B00000UL
+#define SPRD_SPI1_SIZE			SZ_4K
+
+#define SPRD_SPI2_BASE			SCI_IOMAP(0x0031a000)
+#define SPRD_SPI2_PHYS			0x70C00000UL
+#define SPRD_SPI2_SIZE			SZ_4K
+
+#define SPRD_INTC0_BASE			SCI_IOMAP(0x00320000)
+#define SPRD_INTC0_PHYS			0x71400000UL
+#define SPRD_INTC0_SIZE			SZ_4K
+
+#define SPRD_INTC1_BASE			SCI_IOMAP(0x00322000)
+#define SPRD_INTC1_PHYS			0x71500000UL
+#define SPRD_INTC1_SIZE			SZ_4K
+
+#define SPRD_INTC2_BASE			SCI_IOMAP(0x00324000)
+#define SPRD_INTC2_PHYS			0x71600000UL
+#define SPRD_INTC2_SIZE			SZ_4K
+
+#define SPRD_INTC3_BASE			SCI_IOMAP(0x00326000)
+#define SPRD_INTC3_PHYS			0x71700000UL
+#define SPRD_INTC3_SIZE			SZ_4K
+
+#define SPRD_APBREG_BASE		SCI_IOMAP(0x00330000)
+#define SPRD_APBREG_PHYS		0x71300000UL
+#define SPRD_APBREG_SIZE		SZ_64K
+
+#define SPRD_ADI_BASE			SCI_IOMAP(0x00380000)
+#define SPRD_ADI_PHYS			0x40030000UL
+#define SPRD_ADI_SIZE			SZ_64K
+
+#define SPRD_ADISLAVE_BASE		(SPRD_ADI_BASE + 0x00008000)
+#define SPRD_ADISLAVE_PHYS		(SPRD_ADI_PHYS + 0x00008000)
+
+#define SPRD_GPTIMER_BASE		SCI_IOMAP(0x00392000)
+#define SPRD_GPTIMER_PHYS		0x40050000UL
+#define SPRD_GPTIMER_SIZE		SZ_4K
+
+#define SPRD_APTIMER0_BASE		SCI_IOMAP(0x00394000)
+#define SPRD_APTIMER0_PHYS		0x40060000UL
+#define SPRD_APTIMER0_SIZE		SZ_4K
+
+#define SPRD_SYSTIMER_CMP_BASE		SCI_IOMAP(0x00396000)
+#define SPRD_SYSTIMER_CMP_PHYS		0x402E0000UL
+#define SPRD_SYSTIMER_CMP_SIZE		SZ_4K
+
+/* Core GIC aliases */
+#define CORE_GIC_CPU_VA			(SPRD_CORE_BASE + 0x2000)
+#define CORE_GIC_DIS_VA			(SPRD_CORE_BASE + 0x1000)
+
+/* Subsystem register base aliases matching 3.10 headers */
+#define REGS_AP_AHB_BASE		SPRD_AHB_BASE
+#define REGS_AP_APB_BASE		SPRD_APBREG_BASE
+#define REGS_AON_APB_BASE		SPRD_AONAPB_BASE
+#define REGS_PMU_APB_BASE		SPRD_PMU_BASE
+#define REGS_AON_CLK_BASE		SPRD_AONCKG_BASE
+#define REGS_AP_CLK_BASE		SPRD_APBCKG_BASE
+#define REGS_GPU_APB_BASE		SPRD_GPUCKG_BASE
+#define REGS_MM_AHB_BASE		SPRD_MMCKG_BASE
+#define REGS_ADISLAVE_BASE		SPRD_ADISLAVE_BASE
+
+/*
+ * AP_AHB Registers (SC7730SE / SCX30G TShark2 layout)
+ */
+#define REG_AP_AHB_AHB_EB			SCI_ADDR(REGS_AP_AHB_BASE, 0x0000)
+#define REG_AP_AHB_AHB_RST			SCI_ADDR(REGS_AP_AHB_BASE, 0x0004)
+#define REG_AP_AHB_CA7_RST_SET			SCI_ADDR(REGS_AP_AHB_BASE, 0x0008)
+#define REG_AP_AHB_AP_SYS_FORCE_SLEEP_CFG	SCI_ADDR(REGS_AP_AHB_BASE, 0x000C)
+#define REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG	SCI_ADDR(REGS_AP_AHB_BASE, 0x0010)
+/* SCX30G Holding Pen & CPU Jump Addresses (0x0014..0x0024) */
+#define REG_AP_AHB_HOLDING_PEN			SCI_ADDR(REGS_AP_AHB_BASE, 0x0014)
+#define REG_AP_AHB_JMP_ADDR_CA7_C0		SCI_ADDR(REGS_AP_AHB_BASE, 0x0018)
+#define REG_AP_AHB_JMP_ADDR_CA7_C1		SCI_ADDR(REGS_AP_AHB_BASE, 0x001C)
+#define REG_AP_AHB_JMP_ADDR_CA7_C2		SCI_ADDR(REGS_AP_AHB_BASE, 0x0020)
+#define REG_AP_AHB_JMP_ADDR_CA7_C3		SCI_ADDR(REGS_AP_AHB_BASE, 0x0024)
+/* Legacy SC8830 Holding Pen & CPU Jump Addresses (0x004C..0x005C) */
+#define REG_AP_AHB_HOLDING_PEN_LEGACY		SCI_ADDR(REGS_AP_AHB_BASE, 0x004C)
+#define REG_AP_AHB_JMP_ADDR_CA7_C0_LEGACY	SCI_ADDR(REGS_AP_AHB_BASE, 0x0050)
+#define REG_AP_AHB_CA7_CKG_CFG			SCI_ADDR(REGS_AP_AHB_BASE, 0x3000)
+#define REG_AP_AHB_CA7_STANDBY_STATUS		SCI_ADDR(REGS_AP_AHB_BASE, 0x3008)
+#define REG_AP_AHB_AP_MTX_S3_PRIO0		SCI_ADDR(REGS_AP_AHB_BASE, 0x300C)
+
+/* AP_AHB_EB bits */
+#define BIT_GSP_EB				BIT(3)
+#define BIT_DISPC0_EB				BIT(1)
+#define BIT_DMA_EB				BIT(5)
+#define BIT_SDIO0_EB				BIT(8)
+#define BIT_SDIO1_EB				BIT(9)
+#define BIT_SDIO2_EB				BIT(10)
+#define BIT_EMMC_EB				BIT(11)
+#define BIT_OTG_EB				BIT(4)
+
+/*
+ * AP_APB Registers
+ */
+#define REG_AP_APB_APB_EB			SCI_ADDR(REGS_AP_APB_BASE, 0x0000)
+#define REG_AP_APB_APB_RST			SCI_ADDR(REGS_AP_APB_BASE, 0x0004)
+#define REG_AP_APB_APB_MISC_CTRL		SCI_ADDR(REGS_AP_APB_BASE, 0x0008)
+
+#define BIT_SIM0_EB				BIT(0)
+#define BIT_IIS0_EB				BIT(1)
+#define BIT_IIS1_EB				BIT(2)
+#define BIT_IIS2_EB				BIT(3)
+#define BIT_IIS3_EB				BIT(4)
+#define BIT_SPI0_EB				BIT(5)
+#define BIT_SPI1_EB				BIT(6)
+#define BIT_SPI2_EB				BIT(7)
+#define BIT_I2C0_EB				BIT(8)
+#define BIT_I2C1_EB				BIT(9)
+#define BIT_I2C2_EB				BIT(10)
+#define BIT_I2C3_EB				BIT(11)
+#define BIT_I2C4_EB				BIT(12)
+#define BIT_UART0_EB				BIT(13)
+#define BIT_UART1_EB				BIT(14)
+#define BIT_UART2_EB				BIT(15)
+#define BIT_UART3_EB				BIT(16)
+#define BIT_UART4_EB				BIT(17)
+#define BIT_INTC0_EB				BIT(18)
+#define BIT_INTC1_EB				BIT(19)
+#define BIT_INTC2_EB				BIT(20)
+#define BIT_INTC3_EB				BIT(21)
+
+#define BIT_I2C0_SOFT_RST			BIT(8)
+#define BIT_I2C1_SOFT_RST			BIT(9)
+#define BIT_I2C2_SOFT_RST			BIT(10)
+#define BIT_I2C3_SOFT_RST			BIT(11)
+#define BIT_I2C4_SOFT_RST			BIT(12)
+#define BIT_INTC0_SOFT_RST			BIT(19)
+#define BIT_INTC1_SOFT_RST			BIT(20)
+#define BIT_INTC2_SOFT_RST			BIT(21)
+#define BIT_INTC3_SOFT_RST			BIT(22)
+
+/*
+ * AON_APB Registers
+ */
+#define REG_AON_APB_APB_EB0			SCI_ADDR(REGS_AON_APB_BASE, 0x0000)
+#define REG_AON_APB_APB_EB1			SCI_ADDR(REGS_AON_APB_BASE, 0x0004)
+#define REG_AON_APB_APB_RST0			SCI_ADDR(REGS_AON_APB_BASE, 0x0008)
+#define REG_AON_APB_APB_RST1			SCI_ADDR(REGS_AON_APB_BASE, 0x000C)
+#define REG_AON_APB_APB_RTC_EB			SCI_ADDR(REGS_AON_APB_BASE, 0x0010)
+#define REG_AON_APB_MPLL_CFG			SCI_ADDR(REGS_AON_APB_BASE, 0x0014)
+#define REG_AON_APB_DPLL_CFG			SCI_ADDR(REGS_AON_APB_BASE, 0x0018)
+#define REG_AON_APB_TDPLL_CFG			SCI_ADDR(REGS_AON_APB_BASE, 0x001C)
+#define REG_AON_APB_CPLL_CFG			SCI_ADDR(REGS_AON_APB_BASE, 0x0020)
+#define REG_AON_APB_WIFIPLL0_CFG		SCI_ADDR(REGS_AON_APB_BASE, 0x0024)
+#define REG_AON_APB_WIFIPLL1_CFG		SCI_ADDR(REGS_AON_APB_BASE, 0x0028)
+#define REG_AON_APB_WPLL_CFG0			SCI_ADDR(REGS_AON_APB_BASE, 0x002C)
+#define REG_AON_APB_AON_CGM_CFG			SCI_ADDR(REGS_AON_APB_BASE, 0x0034)
+#define REG_AON_APB_PLL_SOFT_CNT_DONE		SCI_ADDR(REGS_AON_APB_BASE, 0x0040)
+#define REG_AON_APB_MPLL_CFG1			SCI_ADDR(REGS_AON_APB_BASE, 0x0054)
+#define REG_AON_APB_DPLL_CFG1			SCI_ADDR(REGS_AON_APB_BASE, 0x0058)
+#define REG_AON_APB_AON_CHIP_ID			SCI_ADDR(REGS_AON_APB_BASE, 0x00FC)
+
+#define BIT_GPIO_EB				BIT(3)
+#define BIT_PWM0_EB				BIT(4)
+#define BIT_PWM1_EB				BIT(5)
+#define BIT_PWM2_EB				BIT(6)
+#define BIT_PWM3_EB				BIT(7)
+#define BIT_KPD_EB				BIT(8)
+#define BIT_AON_SYST_EB				BIT(9)
+#define BIT_AP_SYST_EB				BIT(10)
+#define BIT_AON_TMR_EB				BIT(11)
+#define BIT_AP_TMR0_EB				BIT(12)
+#define BIT_EFUSE_EB				BIT(13)
+#define BIT_EIC_EB				BIT(14)
+#define BIT_INTC_EB				BIT(15)
+#define BIT_ADI_EB				BIT(16)
+#define BIT_AUDIF_EB				BIT(17)
+#define BIT_AUD_EB				BIT(18)
+#define BIT_VBC_EB				BIT(19)
+#define BIT_PIN_EB				BIT(20)
+#define BIT_IPI_EB				BIT(28)
+
+#define BIT_EIC_RTC_EB				BIT(6)
+#define BIT_EIC_RTCDV5_EB			BIT(16)
+#define BIT_KPD_RTC_EB				BIT(1)
+#define BIT_AP_WDG_EB				BIT(4)
+#define BIT_AP_TMR1_EB				BIT(9)
+#define BIT_AP_TMR2_EB				BIT(10)
+
+#define BIT_KPD_SOFT_RST			BIT(8)
+#define BIT_EIC_SOFT_RST			BIT(13)
+#define BIT_INTC_SOFT_RST			BIT(15)
+#define BIT_ADI_SOFT_RST			BIT(16)
+
+/*
+ * PMU_APB Registers
+ */
+#define REG_PMU_APB_PD_CA7_TOP_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0000)
+#define REG_PMU_APB_PD_CA7_C0_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0004)
+#define REG_PMU_APB_PD_CA7_C1_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0008)
+#define REG_PMU_APB_PD_CA7_C2_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x000C)
+#define REG_PMU_APB_PD_CA7_C3_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0010)
+
+#define BIT_PD_CA7_C1_FORCE_SHUTDOWN		BIT(25)
+#define BIT_PD_CA7_C1_AUTO_SHUTDOWN_EN		BIT(24)
+
+/*
+ * ANA / SC2723 (A-Die) Registers on ADI Slave Bus
+ */
+#define ANA_REG_GLB_ARM_MODULE_EN		SCI_ADDR(REGS_ADISLAVE_BASE, 0x0008)
+#define ANA_REG_GLB_ARM_CLK_EN			SCI_ADDR(REGS_ADISLAVE_BASE, 0x000C)
+#define ANA_REG_GLB_RTC_CLK_EN			SCI_ADDR(REGS_ADISLAVE_BASE, 0x0010)
+#define ANA_REG_GLB_SOFT_RST_HW			SCI_ADDR(REGS_ADISLAVE_BASE, 0x0014)
+#define ANA_REG_GLB_POR_RST_MONITOR		SCI_ADDR(REGS_ADISLAVE_BASE, 0x00DC)
+#define ANA_REG_GLB_WDG_RST_MONITOR		SCI_ADDR(REGS_ADISLAVE_BASE, 0x00E0)
+#define ANA_REG_GLB_POR_PIN_RST_MONITOR		SCI_ADDR(REGS_ADISLAVE_BASE, 0x00E4)
+#define ANA_REG_GLB_POR_SRC_FLAG		SCI_ADDR(REGS_ADISLAVE_BASE, 0x00E8)
+#define ANA_REG_GLB_POR_7S_CTRL			SCI_ADDR(REGS_ADISLAVE_BASE, 0x00EC)
+#define ANA_REG_GLB_HWRST_RTC			SCI_ADDR(REGS_ADISLAVE_BASE, 0x00F0)
+
+#define ANA_EIC_BASE				SCI_ADDR(REGS_ADISLAVE_BASE, 0x0100)
+#define ANA_PIN_BASE				SCI_ADDR(REGS_ADISLAVE_BASE, 0x0180)
+#define ANA_WDG_BASE				SCI_ADDR(REGS_ADISLAVE_BASE, 0x0080)
+#define ANA_RTC_BASE				SCI_ADDR(REGS_ADISLAVE_BASE, 0x0040)
+#define ANA_INT_BASE				SCI_ADDR(REGS_ADISLAVE_BASE, 0x0280)
+#define ANA_GPIO_INT_BASE			SCI_ADDR(REGS_ADISLAVE_BASE, 0x02C0)
+
+#define BIT_ANA_EIC_EN				BIT(3)
+#define BIT_ANA_GPIO_EN				BIT(1)
+#define BIT_ANA_WDG_EN				BIT(2)
+#define BIT_ANA_RTC_EN				BIT(4)
+#define BIT_RTC_EIC_AG_EN			BIT(3)
+#define BIT_RTC_WDG_EN				BIT(2)
+#define BIT_RTC_RTC_EN				BIT(1)
+
+/* Global Register SET/CLR Offset Helper (SC8830 / SC7730SE hardware set/clr aliases) */
+#define SET_OFFSET				0x1000
+#define CLR_OFFSET				0x2000
+
+static inline u32 sci_glb_read(unsigned long reg, u32 msk)
+{
+	return __raw_readl((void __iomem *)reg) & msk;
+}
+
+static inline int sci_glb_write(unsigned long reg, u32 val, u32 msk)
+{
+	u32 tmp = __raw_readl((void __iomem *)reg);
+	tmp = (tmp & ~msk) | (val & msk);
+	__raw_writel(tmp, (void __iomem *)reg);
+	return 0;
+}
+
+static inline int sci_glb_set(unsigned long reg, u32 bit)
+{
+	u32 tmp = __raw_readl((void __iomem *)reg);
+	__raw_writel(tmp | bit, (void __iomem *)reg);
+	return 0;
+}
+
+static inline int sci_glb_clr(unsigned long reg, u32 bit)
+{
+	u32 tmp = __raw_readl((void __iomem *)reg);
+	__raw_writel(tmp & ~bit, (void __iomem *)reg);
+	return 0;
+}
+
+/* ADI Bus Access API (implemented in arch/arm/mach-sprd/adi.c) */
+int sci_adi_init(void);
+int sci_adi_read(unsigned long reg);
+int sci_adi_raw_write(unsigned long reg, u16 val);
+int sci_adi_write_fast(unsigned long reg, u16 val, u32 sync);
+int sci_adi_write(unsigned long reg, u16 or_val, u16 clear_msk);
+
+static inline int sci_adi_set(unsigned long reg, u16 bits)
+{
+	return sci_adi_write(reg, bits, 0);
+}
+
+static inline int sci_adi_clr(unsigned long reg, u16 bits)
+{
+	return sci_adi_write(reg, 0, bits);
+}
+
+#endif /* __SOC_SPRD_IOMAP_H */

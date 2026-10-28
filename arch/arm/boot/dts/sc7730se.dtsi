@@ -1,92 +1,104 @@
 /*
- * Spreadtrum SC7730SE (SC8830 / "scx35" family) SoC
+ * Spreadtrum SC7730SE SoC Device Tree Include (SCX30G / SCX35 TShark2)
  *
- * Quad Cortex-A7 @ up to 1.3 GHz, Mali-400 MP2, no PSCI.
- * Addresses were recovered from the Samsung/Spreadtrum 3.10 vendor kernel
- * (arch/arm/mach-sc/include/mach/__hardware-sc8830.h), which describes the
- * hardware with a static virtual iomap; here everything is expressed with
- * the real physical addresses so the kernel can ioremap it normally.
+ * Hardware map verified against Samsung SM-T560 / SM-T561 3.10 kernel source
+ * (arch/arm/boot/dts/scx35-gtel3g.dts & scx35.dtsi).
  *
- * This file is dual-licensed: GPL-2.0 or X11.
+ * Licensed under the GPL-2.
  */
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+#include "scx30g-clocks.dtsi"
+#include "sc2723-regulators.dtsi"
 
 / {
-	compatible = "sprd,sc7730se";
-	interrupt-parent = <&gic>;
 	#address-cells = <1>;
 	#size-cells = <1>;
+	compatible = "sprd,sc7730se", "sprd,sc8830", "sprd,sp8830";
+	interrupt-parent = <&gic>;
 
 	aliases {
 		serial0 = &uart0;
 		serial1 = &uart1;
 		serial2 = &uart2;
 		serial3 = &uart3;
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		i2c2 = &i2c2;
+		i2c3 = &i2c3;
+		i2c4 = &i2c4;
+		i2c9 = &i2c_gpio9;
+		mmc0 = &sdio3;
+		mmc1 = &sdio0;
+		mmc2 = &sdio1;
 	};
 
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu0: cpu@f00 {
+		cpu0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0xf00>;
+			reg = <0x0>;
+			enable-method = "sprd,sc7730se-smp";
+			clock-frequency = <1300000000>;
 		};
 
-		cpu1: cpu@f01 {
+		cpu1: cpu@1 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0xf01>;
+			reg = <0x1>;
+			enable-method = "sprd,sc7730se-smp";
+			clock-frequency = <1300000000>;
 		};
 
-		cpu2: cpu@f02 {
+		cpu2: cpu@2 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0xf02>;
+			reg = <0x2>;
+			enable-method = "sprd,sc7730se-smp";
+			clock-frequency = <1300000000>;
 		};
 
-		cpu3: cpu@f03 {
+		cpu3: cpu@3 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a7";
-			reg = <0xf03>;
+			reg = <0x3>;
+			enable-method = "sprd,sc7730se-smp";
+			clock-frequency = <1300000000>;
 		};
-	};
-
-	pmu {
-		compatible = "arm,cortex-a7-pmu";
-		interrupts = <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 95 IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-affinity = <&cpu0>, <&cpu1>, <&cpu2>, <&cpu3>;
 	};
 
 	/*
-	 * Placeholder fixed clocks. The SC7730SE clock tree lives in the
-	 * AON_APB/AP_CLK blocks and is not modelled yet; the bootloader
-	 * leaves the few clocks we need (UART, timers) running.
+	 * Cortex-A7 Generic Timer (arch_timer)
 	 */
-	ext_26m: clock-ext-26m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
+	timer {
+		compatible = "arm,armv7-timer";
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>;
 		clock-frequency = <26000000>;
-		clock-output-names = "ext-26m";
+		always-on;
 	};
 
-	ext_32k: clock-ext-32k {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <32768>;
-		clock-output-names = "ext-32k";
-	};
-
-	clk_48m: clock-48m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <48000000>;
-		clock-output-names = "clk-48m";
+	/*
+	 * GIC-400 (Cortex-A7 MPCore has NO SCU MMIO block at 0x12000000!)
+	 */
+	gic: interrupt-controller@12001000 {
+		compatible = "arm,cortex-a7-gic", "arm,cortex-a15-gic";
+		#interrupt-cells = <3>;
+		interrupt-controller;
+		reg = <0x12001000 0x1000>,
+		      <0x12002000 0x2000>,
+		      <0x12004000 0x2000>,
+		      <0x12006000 0x2000>;
+		interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
 	};
 
 	soc {
@@ -95,77 +107,134 @@
 		#size-cells = <1>;
 		ranges;
 
-		scu@12000000 {
-			compatible = "arm,cortex-a7-scu";
-			reg = <0x12000000 0x100>;
-		};
-
-		gic: interrupt-controller@12001000 {
-			compatible = "arm,cortex-a7-gic";
-			#interrupt-cells = <3>;
-			#address-cells = <0>;
-			interrupt-controller;
-			reg = <0x12001000 0x1000>,
-			      <0x12002000 0x2000>;
-		};
-
-		ap_ahb: syscon@20d00000 {
-			compatible = "sprd,scx35-ap-ahb", "syscon";
-			reg = <0x20d00000 0x10000>;
-		};
-
-		pmu_apb: syscon@402b0000 {
-			compatible = "sprd,scx35-pmu-apb", "syscon";
-			reg = <0x402b0000 0x10000>;
-		};
-
-		aon_apb: syscon@402e0000 {
-			compatible = "sprd,scx35-aon-apb", "syscon";
-			reg = <0x402e0000 0x10000>;
-		};
-
-		ap_apb: syscon@71300000 {
-			compatible = "sprd,scx35-ap-apb", "syscon";
-			reg = <0x71300000 0x10000>;
+		/*
+		 * Spreadtrum GPTIMER0 (0x40050000):
+		 * - Timer 0: 32768 Hz clockevent (GIC SPI 28)
+		 * - Timer 1: 32768 Hz 32-bit countdown clocksource & sched_clock
+		 */
+		gptimer: timer@40050000 {
+			compatible = "sprd,sc7730se-timer", "sprd,sc8830-timer";
+			reg = <0x40050000 0x100>;
+			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+			clock-frequency = <32768>;
 		};
 
 		/*
-		 * AON GPTIMER0, timer 0. Always-on, clocked from the 32.768 kHz
-		 * oscillator, so it keeps running in deep idle.
+		 * Spreadtrum SYSCNT (0x40230000): 1000 Hz millisecond counter
 		 */
-		timer@40050000 {
-			compatible = "sprd,scx35-timer";
-			reg = <0x40050000 0x20>;
-			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ext_32k>;
-			sprd,syscon-aon-apb = <&aon_apb>;
+		syscnt: syscnt@40230000 {
+			compatible = "sprd,sc7730se-syscnt", "sprd,sc8830-syscnt";
+			reg = <0x40230000 0x100>;
+			interrupts = <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
+			clock-frequency = <1000>;
 		};
 
-		/* free running system counter, used as clocksource/sched_clock */
-		syscnt@40230000 {
-			compatible = "sprd,scx35-syscnt";
-			reg = <0x40230000 0x1000>;
-			clocks = <&ext_32k>;
+		/*
+		 * D-Die & A-Die GPIO and EIC Controllers (matching 3.10 gpiobase numbering)
+		 */
+		d_gpio: gpio@40280000 {
+			compatible = "sprd,d-gpio-gpio";
+			reg = <0x40280000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			gpiobase = <0>;
+			ngpios = <240>;
+			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		d_eic: gpio@40210000 {
+			compatible = "sprd,d-eic-gpio";
+			reg = <0x40210000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			gpiobase = <304>;
+			ngpios = <16>;
+			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		a_eic: gpio@40038100 {
+			compatible = "sprd,a-eic-gpio";
+			reg = <0x40038100 0x100>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			gpiobase = <320>;
+			ngpios = <16>;
+		};
+
+		a_gpio: gpio@40038480 {
+			compatible = "sprd,a-gpio-gpio";
+			reg = <0x40038480 0x100>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			gpiobase = <272>;
+			ngpios = <32>;
+		};
+
+		/*
+		 * Spreadtrum Keypad Controller (0x40250000) + Power / VolDown EIC keys
+		 */
+		keypad: keypad@40250000 {
+			compatible = "sprd,sci-keypad";
+			reg = <0x40250000 0x100>;
+			interrupts = <GIC_SPI 37 IRQ_TYPE_NONE>;
+			sprd,keypad-num-rows = <8>;
+			sprd,keypad-num-columns = <8>;
+			sprd,keypad-rows-choose-hw = <0x30000>;
+			sprd,keypad-cols-choose-hw = <0x700>;
+			sprd,debounce_time = <5000>;
+			linux,input-no-autorepeat;
+			linux,input-wakeup;
+			sprd,support_long_key;
+			gpios = <&a_eic 1 0>, <&a_eic 10 0>, <&d_gpio 167 0>;
+
+			key_1 {
+				keypad,row = <0>;
+				keypad,column = <0>;
+				linux,code = <KEY_VOLUMEDOWN>;
+			};
+
+			key_2 {
+				keypad,row = <1>;
+				keypad,column = <0>;
+				linux,code = <KEY_VOLUMEUP>;
+			};
+
+			key_3 {
+				keypad,row = <0>;
+				keypad,column = <1>;
+				linux,code = <KEY_HOME>;
+			};
+		};
+
+		/*
+		 * Spreadtrum UARTs (0x70000000..0x70300000)
+		 */
 		uart0: serial@70000000 {
-			compatible = "sprd,sc9836-uart";
+			compatible = "sprd,sc8830-uart";
 			reg = <0x70000000 0x100>;
 			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_48m>;
-			status = "disabled";
+			clocks = <&ext_26m>;
+			status = "okay";
 		};
 
 		uart1: serial@70100000 {
-			compatible = "sprd,sc9836-uart";
+			compatible = "sprd,sc8830-uart";
 			reg = <0x70100000 0x100>;
 			interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ext_26m>;
-			status = "disabled";
+			status = "okay";
 		};
 
 		uart2: serial@70200000 {
-			compatible = "sprd,sc9836-uart";
+			compatible = "sprd,sc8830-uart";
 			reg = <0x70200000 0x100>;
 			interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ext_26m>;
@@ -173,11 +242,172 @@
 		};
 
 		uart3: serial@70300000 {
-			compatible = "sprd,sc9836-uart";
+			compatible = "sprd,sc8830-uart";
 			reg = <0x70300000 0x100>;
 			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ext_26m>;
 			status = "disabled";
+		};
+
+		/*
+		 * Spreadtrum Hardware I2C Controllers (0x70500000..0x70900000)
+		 */
+		i2c0: i2c@70500000 {
+			compatible = "sprd,i2c", "sprd,sp8830-i2c";
+			reg = <0x70500000 0x1000>;
+			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_i2c0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+		};
+
+		i2c1: i2c@70600000 {
+			compatible = "sprd,i2c", "sprd,sp8830-i2c";
+			reg = <0x70600000 0x1000>;
+			interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_i2c1>;
+			clock-frequency = <400000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			zt7554_ts@20 {
+				compatible = "zinitix,zt7554_ts";
+				reg = <0x20>;
+				tsp,irq-gpio = <&d_gpio 94 0>;
+				tsp,x_resolution = <800>;
+				tsp,y_resolution = <1280>;
+				tsp,page_size = <128>;
+				tsp,orientation = <0>;
+				tsp,core_num = <2>;
+			};
+		};
+
+		i2c2: i2c@70700000 {
+			compatible = "sprd,i2c", "sprd,sp8830-i2c";
+			reg = <0x70700000 0x1000>;
+			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_i2c2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+		};
+
+		i2c3: i2c@70800000 {
+			compatible = "sprd,i2c", "sprd,sp8830-i2c";
+			reg = <0x70800000 0x1000>;
+			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_i2c3>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c4: i2c@70900000 {
+			compatible = "sprd,i2c", "sprd,sp8830-i2c";
+			reg = <0x70900000 0x1000>;
+			interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_i2c4>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+		};
+
+		/*
+		 * Spreadtrum SDHCI Controllers (eMMC, SD, Wi-Fi SDIO)
+		 */
+		sdio3: sdhci@20600000 {
+			compatible = "sprd,sdhci-shark";
+			id = <3>;
+			reg = <0x20600000 0x1000>;
+			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_emmc>, <&clk_384m>;
+			max-frequency = <192000000>;
+			bus-width = <8>;
+			enb-reg = <0x20d00000>;
+			enb-bit = <0x800>;
+			rst-reg = <0x20d00004>;
+			rst-bit = <0x4000>;
+			write-delay = <0x06>;
+			read-pos-delay = <0x07>;
+			read-neg-delay = <0x07>;
+			vdd-vmmc = "vddemmccore";
+			sdhci-cap-1v8-ddr;
+			sdhci-cap2-hc-erase-sz;
+			non-removable;
+			keep-power = <1>;
+			runtime = <1>;
+			status = "okay";
+		};
+
+		sdio0: sdhci@20300000 {
+			compatible = "sprd,sdhci-shark";
+			id = <0>;
+			reg = <0x20300000 0x1000>;
+			interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_sdio0>, <&clk_192m>;
+			max-frequency = <96000000>;
+			bus-width = <4>;
+			enb-reg = <0x20d00000>;
+			enb-bit = <0x100>;
+			rst-reg = <0x20d00004>;
+			rst-bit = <0x800>;
+			write-delay = <0x08>;
+			read-pos-delay = <0x08>;
+			read-neg-delay = <0x08>;
+			vdd-vmmc = "vddsdcore";
+			vdd-vqmmc = "vddsdio";
+			vqmmc-voltage-level = <3000000>;
+			cd-gpios = <205>;
+			sdhci-cap-hw-reset;
+			keep-power = <0>;
+			runtime = <1>;
+			status = "okay";
+		};
+
+		sdio1: sdhci@20400000 {
+			compatible = "sprd,sdhci-shark";
+			id = <1>;
+			reg = <0x20400000 0x1000>;
+			interrupts = <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_sdio1>, <&clk_96m>;
+			max-frequency = <48000000>;
+			bus-width = <4>;
+			enb-reg = <0x20d00000>;
+			enb-bit = <0x200>;
+			rst-reg = <0x20d00004>;
+			rst-bit = <0x1000>;
+			write-delay = <0x03>;
+			read-pos-delay = <0x05>;
+			read-neg-delay = <0x05>;
+			non-removable;
+			keep-power = <1>;
+			runtime = <1>;
+			status = "okay";
+		};
+	};
+
+	/*
+	 * Bit-banged I2C9 for Richtek RT8555 Backlight Controller (SDA=GPIO188, SCL=GPIO189)
+	 */
+	i2c_gpio9: i2c-gpio-9 {
+		compatible = "i2c-gpio";
+		gpios = <&d_gpio 188 0 /* sda */
+			 &d_gpio 189 0 /* scl */>;
+		i2c-gpio,delay-us = <10>;
+		i2c-gpio,timeout-ms = <100>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		rt8555_bl@31 {
+			compatible = "Richtek, RT8555";
+			reg = <0x31>;
+			backlight-ic-name = "RT8555";
+			backlight,scl-gpio = <&d_gpio 189 0>;
+			backlight,sda-gpio = <&d_gpio 188 0>;
+			backlight-en-gpio = <&d_gpio 214 0>;
 		};
 	};
 };

@@ -1,6 +1,2 @@
-#
-# Makefile for the Spreadtrum (UNISOC) 32-bit machine directory
-#
-
-obj-y			+= sprd.o
-obj-$(CONFIG_SMP)	+= platsmp.o
+obj-y					+= sprd.o irq.o adi.o early_console.o
+obj-$(CONFIG_SMP)			+= platsmp.o headsmp.o

@@ -118,9 +118,36 @@ int atags_to_fdt(void *atag_list, void *fdt, int total_space)
 	if ((u32)atag_list & 0x3)
 		return 1;
 
-	/* if we get a DTB here we're done already */
-	if (*(u32 *)atag_list == fdt32_to_cpu(FDT_MAGIC))
-	       return 0;
+	/*
+	 * If bootloader (e.g., Samsung S-Boot) passed its own FDT in r2 (atag_list)
+	 * while we are booting with an appended DTB (fdt != atag_list), copy
+	 * /chosen/linux,initrd-start and /chosen/linux,initrd-end from S-Boot's FDT
+	 * into our appended DTB so the ramdisk is never lost, while keeping our
+	 * appended DTB's clean bootargs (without S-Boot's console=null loglevel=0).
+	 */
+	if (*(u32 *)atag_list == fdt32_to_cpu(FDT_MAGIC)) {
+		if (atag_list != fdt && fdt_check_header(atag_list) == 0) {
+			int len = 0;
+			const uint32_t *initrd_start, *initrd_end;
+
+			ret = fdt_open_into(fdt, fdt, total_space);
+			if (ret < 0)
+				return 0;
+
+			initrd_start = getprop(atag_list, "/chosen", "linux,initrd-start", &len);
+			if (initrd_start && len == sizeof(uint32_t))
+				setprop_cell(fdt, "/chosen", "linux,initrd-start",
+					     fdt32_to_cpu(*initrd_start));
+
+			initrd_end = getprop(atag_list, "/chosen", "linux,initrd-end", &len);
+			if (initrd_end && len == sizeof(uint32_t))
+				setprop_cell(fdt, "/chosen", "linux,initrd-end",
+					     fdt32_to_cpu(*initrd_end));
+
+			fdt_pack(fdt);
+		}
+		return 0;
+	}
 
 	/* validate the ATAG */
 	if (atag->hdr.tag != ATAG_CORE ||

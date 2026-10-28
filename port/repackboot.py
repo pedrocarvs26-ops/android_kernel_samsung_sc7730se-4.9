@@ -39,10 +39,12 @@ FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 # /chosen/bootargs as written in the board DTS, and the single core variant.
 # The replacement is padded with NULs to the exact same length so the FDT
 # property length stays valid; the kernel reads it as a C string.
-DTS_BOOTARGS = (b'console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 '
-                b'no_console_suspend rw')
-DTS_BOOTARGS_NOSMP = (b'console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 '
-                      b'nosmp maxcpus=1 rw')
+DTS_BOOTARGS = (b'console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk '
+                b'ignore_loglevel panic=10 root=/dev/mmcblk0p20 rw rootwait '
+                b'init=/init androidboot.hardware=sc8830')
+DTS_BOOTARGS_NOSMP = (b'console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk '
+                      b'nosmp maxcpus=1 panic=10 root=/dev/mmcblk0p20 rw rootwait '
+                      b'init=/init androidboot.hardware=sc8830')
 
 
 def boot_id(kernel, ramdisk, second, dt):

@@ -1,262 +1,214 @@
 /*
- * SMP support for the Spreadtrum SC7730SE / SC8830 ("scx35") SoC family.
+ * Spreadtrum SC7730SE / SC8830 (SCX30G / SCX35) SMP Support
  *
- * These SoCs ship without PSCI or ARM Trusted Firmware.  Secondary cores
- * are powered down by the PMU_APB power controller and held in reset by
- * AP_AHB.  When a core is released from reset it fetches its boot address
- * from the AP_AHB CPU_JUMP registers, so the kernel just programs the
- * physical address of secondary_startup() there and powers the core up.
+ * Adapted from arch/arm/mach-sc/platsmp.c and pm-scx35.c in the Samsung
+ * SM-T560 / SM-T561 3.10 kernel.
  *
- * Based on arch/arm/mach-sc/platsmp.c from the Spreadtrum/Samsung 3.10
- * vendor kernel, rewritten for the mainline 4.9 SMP API and made fully
- * device-tree driven (no static iomap, no __CPUINIT, no holding-pen
- * assembly trampoline).
+ * Key hardware facts on SC7730SE (Cortex-A7 MPCore / TShark2 SCX30G):
+ * 1. Cortex-A7 MPCore has NO SCU MMIO block at 0x12000000; reading/writing
+ *    0x12000000 triggers an immediate synchronous External Abort!
+ * 2. On SCX30G (SC7730SE), REG_AP_AHB_HOLDING_PEN is at offset 0x0014 and
+ *    REG_AP_AHB_JMP_ADDR_CA7_C0..C3 are at 0x0018..0x0024 (whereas older
+ *    SC8830 placed them at 0x004C and 0x0050..0x005C). We program both so
+ *    any SCX35/SCX30G revision boots secondary CPUs reliably.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Licensed under the GPL-2.
  */
 
-#define pr_fmt(fmt) "sprd-smp: " fmt
-
-#include <linux/bitops.h>
-#include <linux/delay.h>
-#include <linux/errno.h>
 #include <linux/init.h>
+#include <linux/errno.h>
+#include <linux/delay.h>
+#include <linux/device.h>
+#include <linux/jiffies.h>
+#include <linux/smp.h>
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/sched.h>
-#include <linux/smp.h>
-#include <linux/spinlock.h>
+#include <linux/irqchip/arm-gic.h>
 
 #include <asm/cacheflush.h>
 #include <asm/cp15.h>
-#include <asm/proc-fns.h>
-#include <asm/smp.h>
 #include <asm/smp_plat.h>
-#include <asm/smp_scu.h>
 
+#include <soc/sprd/iomap.h>
 #include "core.h"
 
-/* AP_AHB block, 0x20d00000 on SC7730SE */
-#define SPRD_AHB_CA7_RST_SET		0x0008
-#define SPRD_AHB_HOLDING_PEN		0x004c
-#define SPRD_AHB_CPU_JUMP		0x0050
+extern void sci_secondary_startup(void);
 
-/* PMU_APB block, 0x402b0000 on SC7730SE */
-#define SPRD_PMU_PD_CA7_C1_CFG		0x0008
-#define SPRD_PMU_PD_CA7_C2_CFG		0x000c
-#define SPRD_PMU_PD_CA7_C3_CFG		0x0010
-#define SPRD_PMU_PWR_STATUS0_DBG	0x00bc
+static DEFINE_SPINLOCK(boot_lock);
 
-#define PD_CA7_FORCE_SHUTDOWN		BIT(25)
-#define PD_CA7_AUTO_SHUTDOWN_EN		BIT(24)
-#define PD_CA7_PWR_ON_DLY(x)		(((x) << 16) & GENMASK(23, 16))
-#define PD_CA7_PWR_ON_SEQ_DLY(x)	(((x) << 8) & GENMASK(15, 8))
-#define PD_CA7_ISO_ON_DLY(x)		((x) & GENMASK(7, 0))
+#define CPU_UP_KEY_PART		0xbadf1a90
+#define CPU_UP_SUCCESS_KEY	0x63507530
 
-#define SPRD_PWR_STATE_MASK		0xf
-#define SPRD_PWR_STATE_OFF		0x7
-
-#define SPRD_MAX_CPUS			4
-#define SPRD_PWR_RETRY			20
-
-static void __iomem *sprd_ahb_base;
-static void __iomem *sprd_pmu_base;
-static DEFINE_SPINLOCK(sprd_boot_lock);
-
-static u32 sprd_pd_cfg_offset(unsigned int cpu)
+static void write_pen_release(int val)
 {
-	switch (cpu) {
-	case 1:
-		return SPRD_PMU_PD_CA7_C1_CFG;
-	case 2:
-		return SPRD_PMU_PD_CA7_C2_CFG;
-	case 3:
-		return SPRD_PMU_PD_CA7_C3_CFG;
-	default:
-		return 0;
-	}
+	pen_release = val;
+	smp_wmb();
+	sync_cache_w(&pen_release);
 }
 
-static void sprd_set_cpu_reset(unsigned int cpu, bool assert)
+static int boot_secondary_cpus(int cpu_id, u32 paddr)
 {
-	u32 val = readl(sprd_ahb_base + SPRD_AHB_CA7_RST_SET);
-
-	if (assert)
-		val |= BIT(cpu);
-	else
-		val &= ~BIT(cpu);
-
-	writel(val, sprd_ahb_base + SPRD_AHB_CA7_RST_SET);
-}
-
-static int sprd_cpu_power_up(unsigned int cpu)
-{
-	void __iomem *pd = sprd_pmu_base + sprd_pd_cfg_offset(cpu);
-	int i;
+	unsigned long pmu_cfg;
 	u32 val;
 
-	/* hold the core in reset while its power domain comes up */
-	sprd_set_cpu_reset(cpu, true);
+	if (cpu_id < 1 || cpu_id > 3)
+		return -EINVAL;
 
-	/* power up / isolation timings, same values as the vendor kernel */
-	writel(PD_CA7_PWR_ON_DLY(4) | PD_CA7_PWR_ON_SEQ_DLY(4) |
-	       PD_CA7_ISO_ON_DLY(4), pd);
+	/* Write secondary startup physical address to both SCX30G (0x18) and legacy (0x50) regs */
+	__raw_writel(paddr, (void __iomem *)(REG_AP_AHB_JMP_ADDR_CA7_C0 + (cpu_id << 2)));
+	__raw_writel(paddr, (void __iomem *)(REG_AP_AHB_JMP_ADDR_CA7_C0_LEGACY + (cpu_id << 2)));
 
-	val = (readl(pd) | PD_CA7_AUTO_SHUTDOWN_EN) & ~PD_CA7_FORCE_SHUTDOWN;
-	writel(val, pd);
-	udelay(1000);
+	/* Set holding pen bit for this CPU on both SCX30G (0x14) and legacy (0x4C) regs */
+	sci_glb_set(REG_AP_AHB_HOLDING_PEN, BIT(cpu_id));
+	sci_glb_set(REG_AP_AHB_HOLDING_PEN_LEGACY, BIT(cpu_id));
 
-	for (i = 0; i < SPRD_PWR_RETRY; i++) {
-		if (!(readl(pd) & PD_CA7_FORCE_SHUTDOWN) &&
-		    (readl(sprd_ahb_base + SPRD_AHB_CA7_RST_SET) & BIT(cpu)))
-			break;
+	/* Assert core reset before powering up domain */
+	sci_glb_set(REG_AP_AHB_CA7_RST_SET, BIT(cpu_id));
 
-		pr_debug("retrying power-up of CPU%u\n", cpu);
-		sprd_set_cpu_reset(cpu, true);
-		val = (readl(pd) | PD_CA7_AUTO_SHUTDOWN_EN) &
-			~PD_CA7_FORCE_SHUTDOWN;
-		writel(val, pd);
-		udelay(500);
-	}
+	/* Clear force shutdown and auto shutdown in PMU_APB_PD_CA7_Cn_CFG */
+	pmu_cfg = REG_PMU_APB_PD_CA7_C0_CFG + (cpu_id << 2);
+	val = __raw_readl((void __iomem *)pmu_cfg);
+	val &= ~(BIT_PD_CA7_C1_FORCE_SHUTDOWN | BIT_PD_CA7_C1_AUTO_SHUTDOWN_EN);
+	__raw_writel(val, (void __iomem *)pmu_cfg);
 
-	if (i == SPRD_PWR_RETRY) {
-		pr_err("failed to power up CPU%u\n", cpu);
-		return -ETIMEDOUT;
-	}
+	udelay(500);
 
-	/* release from reset: the core jumps to the programmed address */
-	sprd_set_cpu_reset(cpu, false);
+	/* Release core reset */
+	sci_glb_clr(REG_AP_AHB_CA7_RST_SET, BIT(cpu_id));
+	dsb_sev();
 
 	return 0;
 }
 
-static void __init sprd_smp_prepare_cpus(unsigned int max_cpus)
+static void sprd_secondary_init(unsigned int cpu)
 {
-	struct device_node *np;
+	/* Signal CPU bringup completion to primary CPU */
+	write_pen_release((int)CPU_UP_SUCCESS_KEY + cpu);
 
-	np = of_find_compatible_node(NULL, NULL, "sprd,scx35-ap-ahb");
-	if (np) {
-		sprd_ahb_base = of_iomap(np, 0);
-		of_node_put(np);
-	}
-
-	np = of_find_compatible_node(NULL, NULL, "sprd,scx35-pmu-apb");
-	if (np) {
-		sprd_pmu_base = of_iomap(np, 0);
-		of_node_put(np);
-	}
-
-	if (!sprd_ahb_base || !sprd_pmu_base) {
-		pr_err("AP_AHB/PMU_APB not found in DT, SMP disabled\n");
-		return;
-	}
-
-#ifdef CONFIG_HAVE_ARM_SCU
-	np = of_find_compatible_node(NULL, NULL, "arm,cortex-a7-scu");
-	if (!np)
-		np = of_find_compatible_node(NULL, NULL, "arm,cortex-a9-scu");
-	if (np) {
-		void __iomem *scu_base = of_iomap(np, 0);
-
-		of_node_put(np);
-		if (scu_base) {
-			scu_enable(scu_base);
-			iounmap(scu_base);
-		}
-	}
-#endif
+	/* Synchronize with the boot thread */
+	spin_lock(&boot_lock);
+	spin_unlock(&boot_lock);
 }
 
 static int sprd_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
-	unsigned long entry = virt_to_phys(secondary_startup);
+	unsigned long timeout;
 	int ret;
 
-	if (!sprd_ahb_base || !sprd_pmu_base)
-		return -ENODEV;
+	spin_lock(&boot_lock);
 
-	if (cpu == 0 || cpu >= SPRD_MAX_CPUS)
-		return -EINVAL;
+	/*
+	 * Set synchronisation state between this boot processor
+	 * and the secondary one (`0xbadf1a90 | cpu`).
+	 */
+	write_pen_release(cpu_logical_map(cpu) | (int)0xbadf1a90);
 
-	spin_lock(&sprd_boot_lock);
-
-	/* where the core should jump to once it leaves reset */
-	writel(entry, sprd_ahb_base + SPRD_AHB_CPU_JUMP + (cpu << 2));
-
-	/* let the boot ROM know this core is allowed to leave the pen */
-	writel(readl(sprd_ahb_base + SPRD_AHB_HOLDING_PEN) | BIT(cpu),
-	       sprd_ahb_base + SPRD_AHB_HOLDING_PEN);
-
-	ret = sprd_cpu_power_up(cpu);
-
-	spin_unlock(&sprd_boot_lock);
-
+	ret = boot_secondary_cpus(cpu_logical_map(cpu),
+				  virt_to_phys(sci_secondary_startup));
 	if (ret)
-		pr_err("failed to boot CPU%u (%d)\n", cpu, ret);
+		pr_warn("SPRD SMP: boot_secondary_cpus(%u) returned %d\n", cpu, ret);
 
-	return ret;
+	dsb_sev();
+
+	timeout = jiffies + (1 * HZ);
+	while (time_before(jiffies, timeout)) {
+		smp_rmb();
+		if (pen_release == ((int)CPU_UP_SUCCESS_KEY + (int)cpu))
+			break;
+
+		udelay(10);
+		dsb_sev();
+	}
+
+	spin_unlock(&boot_lock);
+
+	if (pen_release != ((int)CPU_UP_SUCCESS_KEY + (int)cpu)) {
+		pr_err("SPRD SMP: CPU%u failed to come online (pen_release=0x%08x)\n",
+		       cpu, pen_release);
+		return -ENOSYS;
+	}
+
+	return 0;
+}
+
+static void __init sprd_smp_init_cpus(void)
+{
+	unsigned int i, ncores;
+
+	/* Read Cortex-A7 L2CTLR[25:24] (+1 = number of cores in cluster) */
+	asm volatile("mrc p15, 1, %0, c9, c0, 2\n" : "=r" (ncores));
+	ncores = ((ncores >> 24) & 0x3) + 1;
+
+	if (ncores > nr_cpu_ids) {
+		pr_warn("SMP: %u cores greater than maximum (%u), clipping\n",
+			ncores, nr_cpu_ids);
+		ncores = nr_cpu_ids;
+	}
+
+	for (i = 0; i < ncores; i++)
+		set_cpu_possible(i, true);
+}
+
+static void __init sprd_smp_prepare_cpus(unsigned int max_cpus)
+{
+	int cpu_count = 0;
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		set_cpu_present(cpu, true);
+		cpu_count++;
+		if (cpu_count >= (int)max_cpus)
+			break;
+	}
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
-static int sprd_cpu_power_down(unsigned int cpu)
+static int sprd_cpu_kill(unsigned int cpu)
 {
-	void __iomem *pd = sprd_pmu_base + sprd_pd_cfg_offset(cpu);
-	int i;
+	unsigned long pmu_cfg;
 	u32 val;
 
-	val = (readl(pd) | PD_CA7_FORCE_SHUTDOWN) & ~PD_CA7_AUTO_SHUTDOWN_EN;
-	writel(val, pd);
+	if (cpu == 0 || cpu > 3)
+		return 0;
 
-	for (i = 0; i < SPRD_PWR_RETRY; i++) {
-		val = readl(sprd_pmu_base + SPRD_PMU_PWR_STATUS0_DBG);
-		val = (val >> (4 * (cpu + 1))) & SPRD_PWR_STATE_MASK;
-		if (val == SPRD_PWR_STATE_OFF)
-			return 0;
+	mdelay(2);
+	sci_glb_set(REG_AP_AHB_CA7_RST_SET, BIT(cpu));
 
-		udelay(60);
-	}
+	pmu_cfg = REG_PMU_APB_PD_CA7_C0_CFG + (cpu << 2);
+	val = __raw_readl((void __iomem *)pmu_cfg);
+	val |= BIT_PD_CA7_C1_FORCE_SHUTDOWN;
+	val &= ~BIT_PD_CA7_C1_AUTO_SHUTDOWN_EN;
+	__raw_writel(val, (void __iomem *)pmu_cfg);
 
-	return -ETIMEDOUT;
+	return 1;
 }
 
 static void sprd_cpu_die(unsigned int cpu)
 {
 	v7_exit_coherency_flush(louis);
 
-	/* the boot CPU powers us down through sprd_cpu_kill() */
-	while (1)
-		cpu_do_idle();
-}
-
-static int sprd_cpu_kill(unsigned int cpu)
-{
-	int ret;
-
-	if (!sprd_pmu_base || !sprd_pd_cfg_offset(cpu))
-		return 0;
-
-	ret = sprd_cpu_power_down(cpu);
-	if (ret) {
-		pr_err("failed to power down CPU%u (%d)\n", cpu, ret);
-		return 0;
+	for (;;) {
+		wfi();
+		if (pen_release == (int)(cpu_logical_map(cpu) | 0xbadf1a90))
+			break;
 	}
 
-	/* clear the holding pen bit so the core stays parked */
-	writel(readl(sprd_ahb_base + SPRD_AHB_HOLDING_PEN) & ~BIT(cpu),
-	       sprd_ahb_base + SPRD_AHB_HOLDING_PEN);
-
-	return 1;
+	/* Soft restart secondary core */
+	sci_secondary_startup();
 }
-#endif /* CONFIG_HOTPLUG_CPU */
+#endif
 
-const struct smp_operations sprd_smp_ops __initconst = {
+static const struct smp_operations sprd_smp_ops __initconst = {
+	.smp_init_cpus		= sprd_smp_init_cpus,
 	.smp_prepare_cpus	= sprd_smp_prepare_cpus,
+	.smp_secondary_init	= sprd_secondary_init,
 	.smp_boot_secondary	= sprd_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_die		= sprd_cpu_die,
 	.cpu_kill		= sprd_cpu_kill,
+	.cpu_die		= sprd_cpu_die,
 #endif
 };
+
+CPU_METHOD_OF_DECLARE(sprd_sc7730se_smp, "sprd,sc7730se-smp", &sprd_smp_ops);
+CPU_METHOD_OF_DECLARE(sprd_sc8830_smp, "sprd,sc8830-smp", &sprd_smp_ops);

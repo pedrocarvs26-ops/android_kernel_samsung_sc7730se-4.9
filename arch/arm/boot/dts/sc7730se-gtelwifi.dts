@@ -1,55 +1,20 @@
 /dts-v1/;
 
 /*
- * Samsung Galaxy Tab E 9.6 Wi-Fi (SM-T560, "gtelwifi")
- * Spreadtrum SC7730SE, 1.5 GB RAM, 800x1280 panel.
+ * Samsung Galaxy Tab E 9.6 Wi-Fi (SM-T560 / gtelwifi) Device Tree
  *
- * The stock bootloader boots a zImage with an appended DTB inside a
- * Samsung boot.img, and passes its own command line; the bootargs below
- * are only used when the bootloader does not override them.
+ * Includes full Spreadtrum SC7730SE SoC peripherals, clocks, SC2723 PMIC
+ * regulators, SDHCI eMMC/SD/Wi-Fi, Zinitix ZT7554 touchscreen, RT8555
+ * backlight, keypad, simplefb, ramoops, and Samsung sec_log (/proc/last_kmsg).
  *
- * This file is dual-licensed: GPL-2.0 or X11.
+ * Licensed under the GPL-2.
  */
 
 #include "sc7730se.dtsi"
 
 / {
-	model = "Samsung Galaxy Tab E 9.6 Wi-Fi (SM-T560)";
-	compatible = "samsung,gtelwifi", "sprd,sc7730se";
-
-	chosen {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
-
-		stdout-path = "serial1:115200n8";
-		bootargs = "console=tty0 console=ttyS1,115200n8 earlycon=sprd_serial,0x70100000 no_console_suspend rw";
-
-		/*
-		 * Kernel log on the tablet's own screen.
-		 *
-		 * The bootloader leaves the panel initialised and passes
-		 * lcd_base=0x9ea44000 on its command line; that buffer is the
-		 * fb_reserved carve-out below, marked no-map so simplefb can
-		 * ioremap_wc() it (ARM refuses ioremap on memory that is still in
-		 * the linear map). With fbcon on top, printk lands on the panel:
-		 * the only debug channel on this device that needs neither a UART
-		 * jig nor a raw /dev/mem read from recovery, both of which have
-		 * already cost us two device resets.
-		 *
-		 * 0xbb8000 bytes is exactly three 800x1280x4 buffers. If the text
-		 * comes out sheared, the bootloader set the panel up the other way
-		 * round: swap to width 1280, height 800, stride 5120.
-		 */
-		framebuffer@9ea44000 {
-			compatible = "simple-framebuffer";
-			reg = <0x9ea44000 0x00bb8000>;
-			width = <800>;
-			height = <1280>;
-			stride = <3200>;
-			format = "a8r8g8b8";
-		};
-	};
+	model = "Samsung Galaxy Tab E 9.6 Wi-Fi (SM-T560, gtelwifi)";
+	compatible = "samsung,gtelwifi", "samsung,gtel3g", "sprd,sc7730se", "sprd,sc8830", "sprd,sp8830";
 
 	memory@80000000 {
 		device_type = "memory";
@@ -61,83 +26,44 @@
 		#size-cells = <1>;
 		ranges;
 
-		/*
-		 * Persistent kernel log, read back from TWRP after a failed boot.
-		 * The screen console above is the primary channel; this one keeps
-		 * the text after the panel is gone and survives a reset.
-		 * See docs/DEBUG-TWRP.md.
-		 *
-		 * Picking this address took three attempts and two device resets:
-		 *
-		 *  - 0x89b00000 first, the top megabyte of the modem window. A dump
-		 *    came back full of CP firmware strings (sbuf_0_*, sblock_0_*),
-		 *    which looked like proof that the region was in use.
-		 *  - then 0x86b80000, inside the megabyte the bootloader reserves
-		 *    for the stock RAM console ("sec_log=0xffe00@0x86b00000" on the
-		 *    recovered command line). That window turned out to be unusable:
-		 *    reading it from recovery resets the tablet instantly, because
-		 *    the recovery kernel carves it out of its own memory map, the
-		 *    /dev/mem read then faults in kernel context, and Samsung builds
-		 *    with panic_on_oops. A log that cannot be read back is worth
-		 *    nothing.
-		 *  - so back to 0x89b00000: the only region that is both kept out of
-		 *    the recovery kernel's allocator and still inside its linear
-		 *    map. A 1 MiB pread there is the single raw memory read this
-		 *    device has ever completed. The CP strings are stale firmware
-		 *    from the previous boot - nothing runs the modem in recovery -
-		 *    and tools/memdump --mark/--check prove on the device whether
-		 *    the bootloader reloads that firmware on a recovery boot.
-		 *
-		 * record-size = <0> leaves the console zone as the only zone, so
-		 * it starts at the base of the region and stays plain text: 4.9
-		 * stores dmesg records zlib-compressed, but never the console.
-		 * The 12-byte header (sig 0x43474244 "DBGC", start, size) is the
-		 * same layout Samsung's own sec_log uses on this SoC.
-		 */
-		ramoops@89b00000 {
+		/* Samsung S-Boot & TWRP /proc/last_kmsg buffer (sec_log=0xffe00@0x86b00000) */
+		seclog_reserved: sec_log@86b00000 {
+			reg = <0x86b00000 0x00100000>;
+			no-map;
+		};
+
+		/* Linux pstore/ramoops persistent crash log at 0x89b00000 */
+		ramoops: ramoops@89b00000 {
 			compatible = "ramoops";
-			reg = <0x89b00000 0x100000>;
-			console-size = <0x100000>;
-			record-size = <0>;
-			ecc-size = <0>;
+			reg = <0x89b00000 0x00100000>;
+			record-size = <0x00020000>;
+			console-size = <0x00040000>;
+			ftrace-size = <0x00020000>;
+			pmsg-size = <0x00020000>;
+			unbuffered;
 		};
 
-		/* shared memory with the modem/DSP side */
-		smem_reserved: smem@87800000 {
-			reg = <0x87800000 0x240000>;
-			no-map;
-		};
-
-		/*
-		 * CP (modem) firmware window, kept even on Wi-Fi only models.
-		 * The hardware window runs to 0x89c00000; the top megabyte is the
-		 * RAM console above, so this node stops at 0x89b00000. No modem
-		 * driver exists in this tree and nothing here is loaded by us: the
-		 * stale firmware image the bootloader left behind is what made that
-		 * megabyte look busy in the first dump.
-		 */
-		cp_reserved: cp-modem@88000000 {
-			reg = <0x88000000 0x1b00000>;
-			no-map;
-		};
-
-		/* framebuffer handed over by the bootloader */
+		/* S-Boot pre-initialized 800x1280x32bpp display framebuffer */
 		fb_reserved: framebuffer@9ea44000 {
-			reg = <0x9ea44000 0x00bb8000>;
-			no-map;
-		};
-
-		ion_reserved: ion@9f5fc000 {
-			reg = <0x9f5fc000 0x007d4000>;
+			reg = <0x9ea44000 0x00400000>;
 			no-map;
 		};
 	};
-};
 
-&uart0 {
-	status = "okay";
-};
+	chosen {
+		bootargs = "console=tty0 console=ttyS1,115200n8 loglevel=8 earlyprintk ignore_loglevel panic=10 root=/dev/mmcblk0p20 rw rootwait init=/init androidboot.hardware=sc8830";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
 
-&uart1 {
-	status = "okay";
+		framebuffer0: framebuffer@9ea44000 {
+			compatible = "simple-framebuffer";
+			reg = <0x9ea44000 (800 * 1280 * 4)>;
+			width = <800>;
+			height = <1280>;
+			stride = <(800 * 4)>;
+			format = "a8r8g8b8";
+			status = "okay";
+		};
+	};
 };
