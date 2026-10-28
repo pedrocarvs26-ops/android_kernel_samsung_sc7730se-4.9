@@ -1901,9 +1901,8 @@ static int parse_options(char *options, struct super_block *sb,
 	}
 	if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_ORDERED_DATA &&
 	    test_opt(sb, JOURNAL_ASYNC_COMMIT)) {
-		ext4_msg(sb, KERN_ERR, "can't mount with journal_async_commit "
-			 "in data=ordered mode");
-		return 0;
+		ext4_msg(sb, KERN_WARNING, "mounting with journal_async_commit "
+			 "in data=ordered mode (Android fstab compat)");
 	}
 	return 1;
 }
@@ -4074,9 +4073,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			goto failed_mount_wq;
 		}
 		if (test_opt(sb, JOURNAL_ASYNC_COMMIT)) {
-			ext4_msg(sb, KERN_ERR, "can't mount with "
-				 "journal_async_commit, fs mounted w/o journal");
-			goto failed_mount_wq;
+			clear_opt(sb, JOURNAL_ASYNC_COMMIT);
 		}
 		if (sbi->s_commit_interval != JBD2_DEFAULT_MAX_COMMIT_AGE*HZ) {
 			ext4_msg(sb, KERN_ERR, "can't mount with "
