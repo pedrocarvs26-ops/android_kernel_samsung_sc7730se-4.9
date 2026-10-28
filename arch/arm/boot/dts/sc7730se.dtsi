@@ -252,6 +252,32 @@
 	};
 
 	/*
+	 * Mali-400 MP2 (Utgard r4p1).  All GP/PP/MMU interrupts share SPI 39.
+	 * Register order/names follow the stock DT; the driver matches cores
+	 * by address.
+	 */
+	gpu: gpu@60000000 {
+		compatible = "sprd,mali-utgard";
+		reg = <0x60001000 0x200>, <0x60000000 0x100>, <0x60003000 0x100>,
+		      <0x60008000 0x1100>, <0x60004000 0x100>, <0x6000a000 0x1100>,
+		      <0x60005000 0x100>, <0x60002000 0x100>;
+		reg-names = "mali_l2", "mali_gp", "mali_gp_mmu", "mali_pp0",
+			    "mali_pp0_mmu", "mali_pp1", "mali_pp1_mmu", "mali_pmu";
+		interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "mali_gp_irq", "mali_gp_mmu_irq",
+				  "mali_pp0_irq", "mali_pp0_mmu_irq",
+				  "mali_pp1_irq", "mali_pp1_mmu_irq";
+		clocks = <&clk_gpu_axi>, <&clk_384m>;
+		clock-names = "clk_gpu_axi", "clk_384m";
+		mali_pp_core_number = <2>;
+	};
+
+	/*
 	 * Zinitix ZT7554 3.3V LDO regulator (GPIO 156 active-high)
 	 */
 	tsp_ldo: fixedregulator@0 {

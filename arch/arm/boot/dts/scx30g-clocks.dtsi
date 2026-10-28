@@ -356,6 +356,15 @@
 			clock-output-names = "clk_pwm3";
 		};
 
+		/* AON_APB_EB0 GPU_EB; prepare clears PMU PD_GPU_TOP_CFG FORCE_SHUTDOWN (reg LSB=1: inverted) */
+		clk_gpu_axi: clk_gpu_axi {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402e0000 0x8000000>, <0x402b0021 0x2000000>;
+			clocks = <&clk_aon_apb>;
+			clock-output-names = "clk_gpu_axi";
+		};
+
 		clk_efuse: clk_efuse {
 			compatible = "sprd,gate-clock";
 			#clock-cells = <0>;
