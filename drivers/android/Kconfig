@@ -19,6 +19,22 @@ config ANDROID_BINDER_IPC
 	  Android process, using Binder to identify, invoke and pass arguments
 	  between said processes.
 
+config ANDROID_BINDER_IPC_32BIT
+	bool "Use old 32-bit binder API (protocol v7)"
+	depends on !64BIT && ANDROID_BINDER_IPC
+	default n
+	---help---
+	  Build the driver with BINDER_IPC_32BIT: 32-bit binder_size_t and
+	  binder_uintptr_t, BINDER_CURRENT_PROTOCOL_VERSION 7.
+
+	  Needed for 32-bit ROMs whose userspace is built with binder32bit
+	  (for example LineageOS 17.1/18.1 for SM-T560/SM-T561, whose 3.10
+	  kernel uses ANDROID_BINDER_IPC_32BIT=y). libbinder refuses any
+	  binder node whose protocol version does not match its own.
+
+	  Note that enabling this will break user-space built for the
+	  64-bit binder protocol (v8).
+
 config ANDROID_BINDER_DEVICES
 	string "Android Binder devices"
 	depends on ANDROID_BINDER_IPC
