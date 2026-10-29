@@ -3,6 +3,8 @@ menuconfig ARCH_SPRD
 	depends on ARCH_MULTI_V7
 	select ARM_GIC
 	select COMMON_CLK
+	# early_console.c paints VGA8x16 glyphs (opt-in, sprd_early_panel=1)
+	select FONT_SUPPORT
 	select GENERIC_IRQ_CHIP
 	select GPIOLIB
 	select IRQ_DOMAIN

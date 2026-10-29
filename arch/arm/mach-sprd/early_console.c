@@ -16,6 +16,7 @@
  * Licensed under the GPL-2.
  */
 
+#include <linux/sprd-early-console.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/console.h>
@@ -74,7 +75,20 @@ static u32 early_old_log_len __initdata;
 static u32 __iomem *early_fb_base;
 static int fb_cur_col;
 static int fb_cur_row;
-static bool early_fb_active = true;
+static bool early_fb_active;
+
+/*
+ * Painting the log on the panel is opt-in ("sprd_early_panel=1"): every
+ * drawn line is ~38k uncached stores with interrupts off, which starves the
+ * CPU that services the GIC SPIs. /proc/last_kmsg (sec_log RAM buffer) is
+ * always written and is what we read back from TWRP.
+ */
+static bool early_fb_wanted;
+static int __init sprd_early_panel_param(char *s)
+{
+	return strtobool(s, &early_fb_wanted);
+}
+early_param("sprd_early_panel", sprd_early_panel_param);
 
 static struct map_desc sprd_early_debug_io_desc[] __initdata = {
 	{
@@ -205,6 +219,20 @@ static void early_fb_putc(char c)
 	fb_cur_col++;
 }
 
+/*
+ * Once userspace (SurfaceFlinger/gralloc) opens the framebuffer it owns the
+ * panel: stop drawing the log on top of it. Each drawn line costs ~25k
+ * uncached stores with interrupts off, so this is also a big CPU saving.
+ */
+void sprd_early_console_panel_off(void)
+{
+	if (!early_fb_active)
+		return;
+	early_fb_active = false;
+	pr_info("sprd_early: userspace owns the panel, log stays in RAM only\n");
+}
+EXPORT_SYMBOL_GPL(sprd_early_console_panel_off);
+
 static void sprd_early_con_write(struct console *con, const char *s, unsigned int n)
 {
 	unsigned int i;
@@ -267,8 +295,11 @@ void __init sprd_early_console_map_io(void)
 	early_fb_base = (u32 __iomem *)(SPRD_EARLYFB_VIRT + 0x44000UL);
 	fb_cur_col = 0;
 	fb_cur_row = 0;
-	early_fb_clear_row(0, 0xFF001020U);
-	early_fb_clear_row(1, 0xFF002850U);
+	early_fb_active = early_fb_wanted;
+	if (early_fb_active) {
+		early_fb_clear_row(0, 0xFF001020U);
+		early_fb_clear_row(1, 0xFF002850U);
+	}
 
 	for (p = banner; *p; p++) {
 		if (*p == '\n')
