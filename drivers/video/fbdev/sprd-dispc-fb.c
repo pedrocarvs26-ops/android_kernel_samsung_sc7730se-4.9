@@ -29,6 +29,9 @@
 #include <linux/platform_device.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
+#include <linux/math64.h>
+#include <linux/sizes.h>
+#include <linux/sprd-early-console.h>
 
 #define DISPC_CTRL		0x0000
 #define DISPC_SIZE_XY		0x0004
@@ -180,8 +183,16 @@ static int sprd_dispc_fb_setcolreg(u_int regno, u_int red, u_int green,
 	return 0;
 }
 
+static int sprd_dispc_fb_open(struct fb_info *info, int user)
+{
+	if (user)
+		sprd_early_console_panel_off();
+	return 0;
+}
+
 static struct fb_ops sprd_dispc_fb_ops = {
 	.owner		= THIS_MODULE,
+	.fb_open	= sprd_dispc_fb_open,
 	.fb_setcolreg	= sprd_dispc_fb_setcolreg,
 	.fb_blank	= sprd_dispc_fb_blank,
 	.fb_ioctl	= sprd_dispc_fb_ioctl,
@@ -319,8 +330,12 @@ static int sprd_dispc_fb_probe(struct platform_device *pdev)
 	info->var.xres_virtual = width;
 	info->var.yres_virtual = height;
 	info->var.activate = FB_ACTIVATE_NOW;
-	info->var.height = -1;
-	info->var.width = -1;
+	/* 9.6" 800x1280 panel, ~130x207 mm active area (~157 dpi) */
+	info->var.height = 207;
+	info->var.width = 130;
+	/* no porch info from the bootloader: pick a pixclock that gives 60 Hz */
+	info->var.pixclock = (u32)div_u64(1000000000000ULL,
+					   (u64)width * height * 60);
 	info->var.vmode = FB_VMODE_NONINTERLACED;
 	sprd_dispc_fb_set_bitfields(&info->var, rgba);
 
@@ -342,6 +357,23 @@ static int sprd_dispc_fb_probe(struct platform_device *pdev)
 		goto err_release;
 	}
 	info->screen_size = info->fix.smem_len;
+
+	/*
+	 * One-shot bandwidth probe on the last 256 KiB (bottom rows): gralloc
+	 * memcpy()s every frame into this memory while page flipping is not
+	 * available, so its write speed bounds the UI frame rate.
+	 */
+	if (info->fix.smem_len >= SZ_256K) {
+		void __iomem *p = info->screen_base + info->fix.smem_len - SZ_256K;
+		ktime_t t0 = ktime_get();
+		s64 us;
+
+		memset_io(p, 0, SZ_256K);
+		wmb();
+		us = ktime_us_delta(ktime_get(), t0);
+		dev_info(dev, "fb write: 256 KiB in %lld us (%lld MB/s)\n",
+			 us, us > 0 ? div64_s64(256LL * 1024 * 1000000 / 1048576, us) : -1LL);
+	}
 
 	par->irq = platform_get_irq(pdev, 0);
 	if (par->irq > 0) {
