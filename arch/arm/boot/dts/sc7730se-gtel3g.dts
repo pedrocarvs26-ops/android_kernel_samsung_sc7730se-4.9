@@ -63,9 +63,20 @@
 			height = <1280>;
 			stride = <(800 * 4)>;
 			format = "a8r8g8b8";
-			status = "okay";
+			/* superseded by the DISPC framebuffer driver (&dispc) */
+			status = "disabled";
 		};
 	};
+};
+
+&dispc {
+	memory-region = <&fb_reserved>;
+	width = <800>;
+	height = <1280>;
+	stride = <(800 * 4)>;
+	/* Android's gralloc renders RGBA; S-Boot scans out BGRA */
+	sprd,osd-rb-switch;
+	status = "okay";
 };
 
 / {

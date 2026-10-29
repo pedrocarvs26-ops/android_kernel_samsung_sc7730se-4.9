@@ -2429,6 +2429,19 @@ config FB_HYPERV
 	help
 	  This framebuffer driver supports Microsoft Hyper-V Synthetic Video.
 
+config FB_SPRD_DISPC
+	bool "Spreadtrum SC8830/SC7730 DISPC framebuffer"
+	depends on (FB = y) && OF && (ARCH_SPRD || COMPILE_TEST)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	help
+	  Framebuffer driver for the display pipeline that the bootloader
+	  has already set up on Spreadtrum SC8830/SC7730 SoCs.  On top of
+	  a plain simple-framebuffer it can switch the OSD layer to RGBA,
+	  provides FBIO_WAITFORVSYNC from the DISPC vsync interrupt and
+	  accepts FBIOBLANK, which Android's display stack relies on.
+
 config FB_SIMPLE
 	bool "Simple framebuffer support"
 	depends on (FB = y)

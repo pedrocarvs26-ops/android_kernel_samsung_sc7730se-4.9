@@ -256,6 +256,14 @@
 	 * Register order/names follow the stock DT; the driver matches cores
 	 * by address.
 	 */
+	/* Display controller (DISPC0), set up by the bootloader */
+	dispc: dispc@20800000 {
+		compatible = "sprd,sc8830-dispc-fb";
+		reg = <0x20800000 0x1000>;
+		interrupts = <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
+		status = "disabled";
+	};
+
 	gpu: gpu@60000000 {
 		compatible = "sprd,mali-utgard";
 		reg = <0x60001000 0x200>, <0x60000000 0x100>, <0x60003000 0x100>,
