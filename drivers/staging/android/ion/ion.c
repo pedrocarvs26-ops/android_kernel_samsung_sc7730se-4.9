@@ -1198,6 +1198,59 @@ int ion_sync_for_device(struct ion_client *client, int fd)
 	return 0;
 }
 
+#ifdef CONFIG_ION_SPRD
+/*
+ * Spreadtrum vendor ABI helpers, see sprd_ion.c.  ION_IOC_INVALIDATE was a
+ * vendor ioctl on the 3.10 kernel that libion_sprd/gralloc still issue before
+ * CPU reads of cached buffers: the mirror image of ion_sync_for_device().
+ */
+static struct ion_buffer *ion_sprd_get_buffer(int fd, struct dma_buf **out)
+{
+	struct dma_buf *dmabuf = dma_buf_get(fd);
+
+	if (IS_ERR(dmabuf))
+		return ERR_CAST(dmabuf);
+	if (dmabuf->ops != &dma_buf_ops) {
+		dma_buf_put(dmabuf);
+		return ERR_PTR(-EINVAL);
+	}
+	*out = dmabuf;
+	return dmabuf->priv;
+}
+
+int ion_invalidate_for_cpu(struct ion_client *client, int fd)
+{
+	struct dma_buf *dmabuf;
+	struct ion_buffer *buffer = ion_sprd_get_buffer(fd, &dmabuf);
+
+	if (IS_ERR(buffer))
+		return PTR_ERR(buffer);
+	dma_sync_sg_for_cpu(NULL, buffer->sg_table->sgl,
+			    buffer->sg_table->nents, DMA_FROM_DEVICE);
+	dma_buf_put(dmabuf);
+	return 0;
+}
+
+/* Physical address of a buffer, only if it is one contiguous chunk. */
+int ion_sprd_buffer_phys(int fd, phys_addr_t *phys, size_t *size)
+{
+	struct dma_buf *dmabuf;
+	struct ion_buffer *buffer = ion_sprd_get_buffer(fd, &dmabuf);
+	int ret = 0;
+
+	if (IS_ERR(buffer))
+		return PTR_ERR(buffer);
+	if (buffer->sg_table->nents != 1) {
+		ret = -EINVAL;
+	} else {
+		*phys = sg_phys(buffer->sg_table->sgl);
+		*size = buffer->size;
+	}
+	dma_buf_put(dmabuf);
+	return ret;
+}
+#endif
+
 int ion_query_heaps(struct ion_client *client, struct ion_heap_query *query)
 {
 	struct ion_device *dev = client->dev;

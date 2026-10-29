@@ -456,6 +456,10 @@ void ion_pages_sync_for_device(struct device *dev, struct page *page,
 long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 int ion_sync_for_device(struct ion_client *client, int fd);
+#ifdef CONFIG_ION_SPRD
+int ion_invalidate_for_cpu(struct ion_client *client, int fd);
+int ion_sprd_buffer_phys(int fd, phys_addr_t *phys, size_t *size);
+#endif
 
 struct ion_handle *ion_handle_get_by_id_nolock(struct ion_client *client,
 						int id);

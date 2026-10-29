@@ -27,6 +27,14 @@ config ION_DUMMY
 	  one doesn't have access to hardware drivers that
 	  use ION.
 
+config ION_SPRD
+	bool "Ion for Spreadtrum SC8830-family SoCs"
+	depends on ION && !ION_DUMMY && (ARCH_SPRD || COMPILE_TEST)
+	help
+	  Registers /dev/ion with the heap ids (1 system, 2 mm, 3 overlay)
+	  and the vendor ioctls that the Spreadtrum Android userspace
+	  (gralloc, libion_sprd, hwcomposer, OMX) expects.
+
 config ION_TEGRA
 	tristate "Ion for Tegra"
 	depends on ARCH_TEGRA && ION

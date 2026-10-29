@@ -22,6 +22,11 @@
 #include "ion_priv.h"
 #include "compat_ion.h"
 
+#ifdef CONFIG_ION_SPRD
+/* Spreadtrum 3.10 vendor ioctl, still issued by libion_sprd/gralloc */
+#define ION_IOC_SPRD_INVALIDATE	_IOWR(ION_IOC_MAGIC, 8, struct ion_fd_data)
+#endif
+
 union ion_ioctl_arg {
 	struct ion_fd_data fd;
 	struct ion_allocation_data allocation;
@@ -221,6 +226,13 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		ret = ion_sync_for_device(client, data.fd.fd);
 		break;
 	}
+#ifdef CONFIG_ION_SPRD
+	case ION_IOC_SPRD_INVALIDATE:
+	{
+		ret = ion_invalidate_for_cpu(client, data.fd.fd);
+		break;
+	}
+#endif
 	case ION_IOC_CUSTOM:
 	{
 		if (!dev->custom_ioctl)
