@@ -30,6 +30,7 @@ config ION_DUMMY
 config ION_SPRD
 	bool "Ion for Spreadtrum SC8830-family SoCs"
 	depends on ION && !ION_DUMMY && (ARCH_SPRD || COMPILE_TEST)
+	select SYNC_FILE
 	help
 	  Registers /dev/ion with the heap ids (1 system, 2 mm, 3 overlay)
 	  and the vendor ioctls that the Spreadtrum Android userspace
