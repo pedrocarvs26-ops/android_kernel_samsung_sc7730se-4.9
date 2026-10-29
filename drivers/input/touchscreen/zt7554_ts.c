@@ -6,7 +6,7 @@
  *
  * Supports:
  * - 5-finger Multi-Touch Type B protocol on 800x1280 panel (I2C1 @ 0x20, IRQ GPIO 82)
- * - 2 capacitive touchkeys (KEY_RECENT / KEY_APPSELECT and KEY_BACK)
+ * - 2 capacitive touchkeys (Samsung KEY_RECENT = 254 and KEY_BACK)
  * - Automatic regulator power-up and ZT7554 NVM boot sequence
  * - ESD watchdog: periodic chip interrupt + power-cycle recovery (as in 3.10)
  *
@@ -103,6 +103,7 @@ extern void sprd_i2c_ctl_chg_clk(unsigned int id_nr, unsigned int freq);
 #define ZT7554_STATS_TICKS		60
 #define ZT7554_DEBUG_FRAMES		5
 #define ZT7554_DEBUG_FINGERS		20
+#define ZT7554_DEBUG_KEYS		20
 
 struct zt7554_coord {
 	u16 x;
@@ -153,6 +154,7 @@ struct zt7554_ts_data {
 	u16 last_bad_status;
 	unsigned int debug_frames;
 	unsigned int debug_fingers;
+	unsigned int debug_keys;
 
 	/* state */
 	unsigned int bad_streak;
@@ -172,8 +174,18 @@ struct zt7554_ts_data {
 	struct zt7554_point_info reported_info;
 };
 
+/*
+ * Samsung's KEY_RECENT (254; not in mainline input-event-codes.h). The ROM's
+ * /vendor/usr/keylayout/sec_touchscreen.kl maps "key 254 APP_SWITCH" and
+ * "key 158 BACK", matching the stock 3.10 driver's
+ * BUTTON_MAPPING_KEY = {KEY_RECENT, KEY_BACK}. KEY_APPSELECT (580) and
+ * KEY_MENU (139) are not APP_SWITCH in that layout, so the recents key
+ * did nothing.
+ */
+#define ZT7554_KEY_RECENT	254
+
 static const u32 zt7554_button_keys[MAX_SUPPORTED_BUTTON_NUM] = {
-	KEY_APPSELECT,
+	ZT7554_KEY_RECENT,
 	KEY_BACK,
 };
 
@@ -385,7 +397,6 @@ static void zt7554_release_all(struct zt7554_ts_data *ts)
 	}
 	for (i = 0; i < MAX_SUPPORTED_BUTTON_NUM; i++)
 		input_report_key(input, zt7554_button_keys[i], 0);
-	input_report_key(input, KEY_MENU, 0);
 	input_mt_sync_frame(input);
 	input_sync(input);
 	memset(&ts->reported_info, 0, sizeof(ts->reported_info));
@@ -498,16 +509,16 @@ static void zt7554_process(struct zt7554_ts_data *ts)
 
 	if (zinitix_bit_test(status, BIT_ICON_EVENT)) {
 		if (zt7554_read_data(client, ZT7554_ICON_STATUS_REG, &icon_event, 2) >= 0) {
+			if (ts->debug_keys < ZT7554_DEBUG_KEYS) {
+				ts->debug_keys++;
+				dev_info(&client->dev, "icon event 0x%04x\n", icon_event);
+			}
 			for (i = 0; i < MAX_SUPPORTED_BUTTON_NUM; i++) {
 				if (zinitix_bit_test(icon_event, BIT_O_ICON0_DOWN + i)) {
 					input_report_key(input, zt7554_button_keys[i], 1);
-					if (i == 0)
-						input_report_key(input, KEY_MENU, 1);
 				}
 				if (zinitix_bit_test(icon_event, BIT_O_ICON0_UP + i)) {
 					input_report_key(input, zt7554_button_keys[i], 0);
-					if (i == 0)
-						input_report_key(input, KEY_MENU, 0);
 				}
 			}
 		} else {
@@ -826,7 +837,6 @@ static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	for (i = 0; i < MAX_SUPPORTED_BUTTON_NUM; i++)
 		__set_bit(zt7554_button_keys[i], input_dev->keybit);
-	__set_bit(KEY_MENU, input_dev->keybit);
 
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, ts->max_x - 1, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, ts->max_y - 1, 0, 0);
