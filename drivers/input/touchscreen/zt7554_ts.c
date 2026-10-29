@@ -25,6 +25,9 @@
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
+#include <linux/workqueue.h>
+#include <linux/mutex.h>
+#include <linux/ktime.h>
 
 extern void sprd_i2c_ctl_chg_clk(unsigned int id_nr, unsigned int freq);
 
@@ -101,6 +104,13 @@ struct zt7554_ts_data {
 	u32 max_x;
 	u32 max_y;
 	u16 ic_int_mask;
+	struct mutex lock;
+	struct delayed_work poll_work;
+	unsigned int irq_count;
+	unsigned int spurious;
+	unsigned int reports;
+	int int_low_streak;
+	bool poll_mode;
 	struct zt7554_point_info touch_info;
 	struct zt7554_point_info reported_info;
 };
@@ -188,7 +198,7 @@ static int zt7554_power_on(struct zt7554_ts_data *ts)
 		WARN_ON(regulator_enable(ts->reg_vdd));
 	}
 
-	mdelay(50);
+	msleep(50);
 
 retry_seq:
 	if (zt7554_write_reg(client, 0xc000, 0x0001) < 0)
@@ -210,14 +220,14 @@ retry_seq:
 	if (zt7554_write_reg(client, 0xc001, 0x0001) < 0)
 		goto err_retry;
 
-	mdelay(150);
+	msleep(150);
 	dev_info(&client->dev, "ZT7554 power sequence complete (chip_code=0x%04x)\n",
 		 chip_code);
 	return 0;
 
 err_retry:
 	if (++retry < 3) {
-		mdelay(20);
+		msleep(20);
 		goto retry_seq;
 	}
 	return -EIO;
@@ -258,28 +268,35 @@ static int zt7554_init_touch(struct zt7554_ts_data *ts)
 	return 0;
 }
 
-static irqreturn_t zt7554_ts_irq_handler(int irq, void *dev_id)
+static void zt7554_process(struct zt7554_ts_data *ts)
 {
-	struct zt7554_ts_data *ts = dev_id;
 	struct i2c_client *client = ts->client;
 	u16 icon_event = 0;
 	int i, ret;
 
 	if (gpio_is_valid(ts->gpio_int) && gpio_get_value(ts->gpio_int))
-		return IRQ_HANDLED;
+		return;
 
 	ret = zt7554_read_data(client, ZT7554_POINT_STATUS_REG,
 			       &ts->touch_info, sizeof(ts->touch_info));
 	if (ret < 0 || ts->touch_info.status == 0xffff ||
 	    zinitix_bit_test(ts->touch_info.status, BIT_MUST_ZERO)) {
 		zt7554_write_cmd(client, ZT7554_CLEAR_INT_STATUS_CMD);
-		return IRQ_HANDLED;
+		return;
 	}
 
 	zt7554_write_cmd(client, ZT7554_CLEAR_INT_STATUS_CMD);
 
 	if (ts->touch_info.status == 0)
-		return IRQ_HANDLED;
+		return;
+
+	if (ts->reports < 3) {
+		ts->reports++;
+		dev_info(&client->dev, "touch report #%u: status=0x%04x x=%u y=%u (%s)\n",
+			 ts->reports, ts->touch_info.status,
+			 ts->touch_info.coord[0].x, ts->touch_info.coord[0].y,
+			 ts->poll_mode ? "poll" : "irq");
+	}
 
 	if (zinitix_bit_test(ts->touch_info.status, BIT_ICON_EVENT)) {
 		if (zt7554_read_data(client, ZT7554_ICON_STATUS_REG, &icon_event, 2) >= 0) {
@@ -324,7 +341,73 @@ static irqreturn_t zt7554_ts_irq_handler(int irq, void *dev_id)
 
 	memcpy(&ts->reported_info, &ts->touch_info, sizeof(ts->touch_info));
 	input_sync(ts->input_dev);
+	return;
+}
+
+#define ZT7554_POLL_MS	15
+
+static irqreturn_t zt7554_ts_irq_handler(int irq, void *dev_id)
+{
+	struct zt7554_ts_data *ts = dev_id;
+	int level = gpio_is_valid(ts->gpio_int) ? gpio_get_value(ts->gpio_int) : 0;
+
+	if (++ts->irq_count <= 3)
+		dev_info(&ts->client->dev, "irq #%u (INT=%d)\n", ts->irq_count, level);
+
+	if (level) {
+		/* INT already high: nothing pending. Too many of these = storm. */
+		if (++ts->spurious == 2000 && !ts->poll_mode) {
+			ts->poll_mode = true;
+			disable_irq_nosync(irq);
+			dev_warn(&ts->client->dev, "IRQ storm (INT high), switching to %d ms polling\n",
+				 ZT7554_POLL_MS);
+			schedule_delayed_work(&ts->poll_work, msecs_to_jiffies(ZT7554_POLL_MS));
+		}
+		return IRQ_HANDLED;
+	}
+
+	mutex_lock(&ts->lock);
+	zt7554_process(ts);
+	mutex_unlock(&ts->lock);
 	return IRQ_HANDLED;
+}
+
+/*
+ * IRQ watchdog: until the first real interrupt arrives, sample TSP_INT. If it
+ * stays low with no interrupt the GPIO IRQ path is broken, so service the
+ * controller by polling instead of leaving the panel dead.
+ */
+static void zt7554_poll_work(struct work_struct *work)
+{
+	struct zt7554_ts_data *ts = container_of(to_delayed_work(work),
+						 struct zt7554_ts_data, poll_work);
+	int level = gpio_get_value(ts->gpio_int);
+
+	if (ts->irq_count && !ts->poll_mode) {
+		dev_info(&ts->client->dev, "IRQ delivery works (%u irqs), watchdog off\n",
+			 ts->irq_count);
+		return;
+	}
+
+	if (!level) {
+		if (!ts->poll_mode && ++ts->int_low_streak >= 3) {
+			ts->poll_mode = true;
+			if (ts->irq > 0)
+				disable_irq(ts->irq);
+			dev_warn(&ts->client->dev,
+				 "INT low with no IRQ (irq %d): falling back to %d ms polling\n",
+				 ts->irq, ZT7554_POLL_MS);
+		}
+		if (ts->poll_mode) {
+			mutex_lock(&ts->lock);
+			zt7554_process(ts);
+			mutex_unlock(&ts->lock);
+		}
+	} else {
+		ts->int_low_streak = 0;
+	}
+
+	schedule_delayed_work(&ts->poll_work, msecs_to_jiffies(ZT7554_POLL_MS));
 }
 
 static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -333,6 +416,10 @@ static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	struct zt7554_ts_data *ts;
 	struct input_dev *input_dev;
 	int i, ret;
+	ktime_t t0 = ktime_get();
+
+#define ZT_STAMP(what) dev_info(&client->dev, "probe +%lld ms: %s\n", \
+				ktime_ms_delta(ktime_get(), t0), what)
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -EIO;
@@ -375,13 +462,19 @@ static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		ts->irq = client->irq;
 	}
 
+	mutex_init(&ts->lock);
+	INIT_DELAYED_WORK(&ts->poll_work, zt7554_poll_work);
+	ZT_STAMP("gpios/regulators");
+
 	ret = zt7554_power_on(ts);
+	ZT_STAMP("power_on");
 	if (ret < 0) {
 		dev_warn(&client->dev, "ZT7554 power sequence failed (%d), continuing\n", ret);
 	} else {
 		zt7554_init_touch(ts);
 		sprd_i2c_ctl_chg_clk(1, 400000);
 	}
+	ZT_STAMP("init_touch");
 
 	input_dev = devm_input_allocate_device(&client->dev);
 	if (!input_dev)
@@ -415,17 +508,27 @@ static int zt7554_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ret = input_register_device(input_dev);
 	if (ret)
 		return ret;
+	ZT_STAMP("input registered");
 
 	if (ts->irq > 0) {
 		ret = devm_request_threaded_irq(&client->dev, ts->irq, NULL,
 						zt7554_ts_irq_handler,
-						IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 						ZT7554_TS_DEVICE, ts);
-		if (ret)
+		if (ret) {
 			dev_warn(&client->dev, "failed to request irq %d: %d\n", ts->irq, ret);
+			ts->irq = 0;
+		}
 	}
+	dev_info(&client->dev, "irq %d (gpio %d, level-low), INT=%d\n", ts->irq,
+		 ts->gpio_int, gpio_is_valid(ts->gpio_int) ? gpio_get_value(ts->gpio_int) : -1);
+	ZT_STAMP("irq requested");
+
+	if (gpio_is_valid(ts->gpio_int))
+		schedule_delayed_work(&ts->poll_work, msecs_to_jiffies(1000));
 
 	return 0;
+#undef ZT_STAMP
 }
 
 static const struct i2c_device_id zt7554_idtable[] = {
@@ -445,6 +548,8 @@ static struct i2c_driver zt7554_ts_driver = {
 	.driver = {
 		.name		= ZT7554_TS_DEVICE,
 		.of_match_table	= zt7554_of_match,
+		/* the power-up sequence sleeps ~250 ms: don't hold up boot */
+		.probe_type	= PROBE_PREFER_ASYNCHRONOUS,
 	},
 	.id_table	= zt7554_idtable,
 	.probe		= zt7554_ts_probe,
