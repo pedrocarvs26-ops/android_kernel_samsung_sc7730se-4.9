@@ -2895,9 +2895,16 @@ static int cgroup_procs_write_permission(struct task_struct *task,
 	 * even if we're attaching all tasks in the thread group, we only
 	 * need to check permissions on one of them.
 	 */
+	/*
+	 * Android: system_server (CAP_SYS_NICE) moves app threads between the
+	 * cpuset/schedtune v1 hierarchies.  Same rule as the Android common
+	 * kernels (__cgroup1_procs_write() on 4.14+); v2 is unchanged.
+	 */
 	if (!uid_eq(cred->euid, GLOBAL_ROOT_UID) &&
 	    !uid_eq(cred->euid, tcred->uid) &&
-	    !uid_eq(cred->euid, tcred->suid))
+	    !uid_eq(cred->euid, tcred->suid) &&
+	    (cgroup_on_dfl(dst_cgrp) ||
+	     !ns_capable(tcred->user_ns, CAP_SYS_NICE)))
 		ret = -EACCES;
 
 	if (!ret && cgroup_on_dfl(dst_cgrp)) {
