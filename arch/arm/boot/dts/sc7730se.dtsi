@@ -280,8 +280,11 @@
 		interrupt-names = "mali_gp_irq", "mali_gp_mmu_irq",
 				  "mali_pp0_irq", "mali_pp0_mmu_irq",
 				  "mali_pp1_irq", "mali_pp1_mmu_irq";
-		clocks = <&clk_gpu_axi>, <&clk_384m>;
-		clock-names = "clk_gpu_axi", "clk_384m";
+		/* gpu_axi, then the clk_gpu mux inputs used for DVFS */
+		clocks = <&clk_gpu_axi>, <&clk_384m>, <&clk_460m8>, <&clk_312m>,
+			 <&clk_256m>, <&clk_153m6>;
+		clock-names = "clk_gpu_axi", "clk_384m", "clk_460m8",
+			      "clk_312m", "clk_256m", "clk_153m6";
 		mali_pp_core_number = <2>;
 	};
 

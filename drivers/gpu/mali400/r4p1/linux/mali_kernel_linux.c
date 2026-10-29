@@ -214,7 +214,7 @@ static const struct dev_pm_ops mali_dev_pm_ops = {
 static struct mali_gpu_device_data mali_gpu_data =
 {
 	.shared_mem_size = ARCH_MALI_MEMORY_SIZE_DEFAULT,
-	.utilization_interval = 300,
+	.utilization_interval = 100,	/* GPU DVFS sampling period, ms */
 	.utilization_callback = mali_platform_utilization,
 };
 

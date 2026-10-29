@@ -30,6 +30,14 @@ extern const struct of_device_id gpu_ids[];
 void mali_platform_utilization(struct mali_gpu_utilization_data *data);
 void mali_platform_device_release(struct device *device);
 int mali_power_initialize(struct platform_device *pdev);
+void mali_platform_power_mode_change(int power_mode);
+
+/* GPU frequency state shared with platform/sc8830/mali_platform.c */
+extern int gpu_cur_freq;
+extern int gpu_level;
+extern int gpufreq_min_limit;
+extern int gpufreq_max_limit;
+extern char *gpufreq_table;
 
 #ifdef __cplusplus
 }
