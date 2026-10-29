@@ -340,6 +340,12 @@ static void zt7554_process(struct zt7554_ts_data *ts)
 	}
 
 	memcpy(&ts->reported_info, &ts->touch_info, sizeof(ts->touch_info));
+	/*
+	 * INPUT_MT_DIRECT advertises BTN_TOUCH; Android's InputReader treats a
+	 * device that has BTN_TOUCH but never reports it pressed as hovering,
+	 * so every frame must also go through the pointer emulation.
+	 */
+	input_mt_sync_frame(ts->input_dev);
 	input_sync(ts->input_dev);
 	return;
 }
