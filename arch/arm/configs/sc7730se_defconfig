@@ -86,13 +86,14 @@ CONFIG_PM_SLEEP=y
 CONFIG_PM_SLEEP_SMP=y
 CONFIG_PM_AUTOSLEEP=y
 CONFIG_PM_WAKELOCKS=y
-# Placeholder battery until the SC2723 fuel gauge/charger is ported:
-# test_power registers test_ac (online), test_usb and test_battery (50%).
-# Without any battery power_supply, Android 11 healthd reports "no battery"
-# and SystemUI crash-loops in BatteryMeterView (unknown-battery race),
-# which made RescueParty escalate. NOT a real battery reading.
+# Real battery: SC2723 fuel gauge ("battery") + VCHG charger detect ("ac"),
+# SMB358 read for charge status only. A battery power_supply must exist:
+# without one Android 11 healthd reports "no battery" and SystemUI
+# crash-loops in BatteryMeterView, so test_power stays off (two batteries
+# would confuse healthd).
 CONFIG_POWER_SUPPLY=y
-CONFIG_TEST_POWER=y
+# CONFIG_TEST_POWER is not set
+CONFIG_BATTERY_SC2723_FGU=y
 
 # Device Tree, GPIO & I2C
 CONFIG_OF=y
