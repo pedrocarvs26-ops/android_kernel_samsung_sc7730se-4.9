@@ -127,7 +127,8 @@ CONFIG_SERIAL_SPRD_CONSOLE=y
 # Framebuffer & Backlight (Early FB + simplefb + RT8555)
 CONFIG_FB=y
 CONFIG_FB_SIMPLE=y
-CONFIG_FRAMEBUFFER_CONSOLE=y
+# fbcon redraws the whole 800x1280 screen per scrolled line: off.
+# CONFIG_FRAMEBUFFER_CONSOLE is not set
 CONFIG_FONTS=y
 CONFIG_FONT_8x8=y
 CONFIG_FONT_8x16=y
