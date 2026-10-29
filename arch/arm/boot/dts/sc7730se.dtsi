@@ -387,7 +387,7 @@
 		#size-cells = <0>;
 		status = "okay";
 
-		/* only read by the SC2723 FGU driver for charge status */
+		/* set up by the SC2723 FGU driver for each charger attach */
 		smb358: charger@6a {
 			compatible = "summit,smb358";
 			reg = <0x6a>;
@@ -403,6 +403,7 @@
 		compatible = "sprd,sc2723-fgu";
 		vchg-gpios = <&a_eic 0 GPIO_ACTIVE_HIGH>;
 		sprd,charger = <&smb358>;
+		sprd,muic = <&muic>;
 		sprd,cnom-mah = <5000>;
 		sprd,rsense-real = <202>;
 		sprd,rsense-spec = <200>;
@@ -436,6 +437,12 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "okay";
+
+		/* charger type, only read by the SC2723 FGU driver */
+		muic: muic@14 {
+			compatible = "siliconmitus,sm5504-muic";
+			reg = <0x14>;
+		};
 	};
 
 	i2c_gpio8: i2c-gpio-8 {
