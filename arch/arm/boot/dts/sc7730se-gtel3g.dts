@@ -43,9 +43,12 @@
 			unbuffered;
 		};
 
-		/* S-Boot pre-initialized 800x1280x32bpp display framebuffer */
+		/*
+		 * S-Boot pre-initialized 800x1280x32bpp display framebuffer,
+		 * three pages for page flipping (the 3.10 kernel's sprd,fb_mem)
+		 */
 		fb_reserved: framebuffer@9ea44000 {
-			reg = <0x9ea44000 0x00400000>;
+			reg = <0x9ea44000 0x00bb8000>;
 			no-map;
 		};
 	};
