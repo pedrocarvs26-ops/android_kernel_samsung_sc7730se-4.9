@@ -18,6 +18,28 @@ grep -E ' (bpf|cgroup2) ' /proc/mounts
 echo "selinux bpf perms: $(ls /sys/fs/selinux/class/bpf/perms 2>&1 | tr '\n' ' ')"
 ls -laZ $P
 
+echo "== read checks (grep EINVAL hunt)"
+cat /proc/mounts > $L/mounts-$mode.txt
+echo "cat /proc/mounts rc=$? lines=$(wc -l < $L/mounts-$mode.txt)"
+cat /proc/self/mountinfo > $L/mountinfo-$mode.txt
+echo "cat mountinfo rc=$? lines=$(wc -l < $L/mountinfo-$mode.txt)"
+grep -c . /proc/mounts
+echo "grep /proc/mounts rc=$?"
+grep -c . $L/mounts-$mode.txt
+echo "grep file rc=$?"
+echo abc | grep -c b
+echo "grep pipe rc=$?"
+
+echo "== loopback"
+echo "ip_nonlocal_bind=$(cat /proc/sys/net/ipv4/ip_nonlocal_bind)"
+ip -o addr show dev lo 2>&1
+if [ "$mode" = early ]; then
+	# init only runs 'ifup lo' later, in 'on boot'
+	ip link set lo up 2>&1 || ifconfig lo up
+	echo "lo up rc=$?"
+	ip -o addr show dev lo 2>&1
+fi
+
 if [ "$mode" = late ]; then
 	echo "== iptables (bpf)"
 	iptables -w -S 2>&1 | grep -E -e '-m bpf|^-N bw_' | head -40

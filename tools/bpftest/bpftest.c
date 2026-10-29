@@ -190,6 +190,10 @@ static const char *ename(long e)
 	case 28: return "ENOSPC";
 	case 38: return "ENOSYS";
 	case 95: return "EOPNOTSUPP";
+	case 99: return "EADDRNOTAVAIL";
+	case 100: return "ENETDOWN";
+	case 101: return "ENETUNREACH";
+	case 111: return "ECONNREFUSED";
 	default: return "E?";
 	}
 }
@@ -599,18 +603,39 @@ static long udp_bind(int fd, int port)
 	return sc(__NR_bind, fd, (long)&sa, sizeof(sa), 0, 0, 0);
 }
 
+/* report the first failing sendto/recvfrom so packet FAILs explain themselves */
+static void io_err(const char *what, long r, int *seen)
+{
+	if (r >= 0 || *seen)
+		return;
+	*seen = 1;
+	out("  info: ");
+	out(what);
+	out(" failed: ");
+	out_ret(r);
+	out("\n");
+}
+
+static int send_err_seen, recv_err_seen;
+
 static long udp_send(int fd, int port, const char *msg)
 {
 	struct sockaddr_in sa;
+	long r;
 
 	lo_addr(&sa, port);
-	return sc(__NR_sendto, fd, (long)msg, slen(msg), 0, (long)&sa,
-		  sizeof(sa));
+	r = sc(__NR_sendto, fd, (long)msg, slen(msg), 0, (long)&sa,
+	       sizeof(sa));
+	io_err("sendto", r, &send_err_seen);
+	return r;
 }
 
 static long udp_recv(int fd, char *buf, int len)
 {
-	return sc(__NR_recvfrom, fd, (long)buf, len, 0, 0, 0);
+	long r = sc(__NR_recvfrom, fd, (long)buf, len, 0, 0, 0);
+
+	io_err("recvfrom", r, &recv_err_seen);
+	return r;
 }
 
 static long set_rcvtimeo(int fd, int sec)
