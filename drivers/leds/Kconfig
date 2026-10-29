@@ -205,6 +205,15 @@ config LEDS_PCA9532_GPIO
 	  To use a pin as gpio pca9532_type in pca9532_platform data needs to
 	  set to PCA9532_TYPE_GPIO.
 
+config LEDS_SC2723_VIBRATOR
+	tristate "Vibrator support for the Spreadtrum SC2723 PMIC"
+	depends on LEDS_CLASS && ARCH_SPRD
+	help
+	  Drives the vibration motor connected to the VIBR LDO of the
+	  Spreadtrum SC2723 PMIC.  It is exposed as the LED class device
+	  "vibrator", to be used with the "transient" trigger as Android's
+	  vibrator HAL expects.
+
 config LEDS_GPIO
 	tristate "LED Support for GPIO connected LEDs"
 	depends on LEDS_CLASS

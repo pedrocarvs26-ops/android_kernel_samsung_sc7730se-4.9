@@ -67,3 +67,10 @@
 		};
 	};
 };
+
+/ {
+	vibrator {
+		compatible = "sprd,sc2723-vibrator";
+		sprd,vibr-voltage = <0xdc>;	/* 3.4 V */
+	};
+};
