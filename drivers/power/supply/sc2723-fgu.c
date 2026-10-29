@@ -2,17 +2,23 @@
 /*
  * SC2723 fuel gauge (FGU) battery driver for SC7730SE boards
  *
- * Registers a "battery" and an "ac" power supply (Samsung SM-T560):
+ * Registers "battery", "ac" and "usb" power supplies (Samsung SM-T560):
  *  - battery voltage/current from the SC2723 FGU ADCs and capacity from
  *    the FGU coulomb counter, using the same model as the vendor 3.10
  *    sprd_fgu/sprd_battery code (efuse calibration, power-on OCV, capacity
  *    saved in the FGU user area, low-voltage corrections and rate-limited
  *    capacity smoothing),
  *  - battery temperature from the SC2723 AUXADC (NTC channel),
- *  - charger presence from the VCHG analog EIC line,
- *  - charge status read from a Summit SMB358 charger over I2C. The charger
- *    is never written; it keeps whatever configuration the bootloader or
- *    the previous kernel left in it.
+ *  - charger presence from the VCHG analog EIC line and the charger type
+ *    (USB port or dedicated charger) from the Silicon Mitus SM5504 MUIC,
+ *    which is only read,
+ *  - the Summit SMB358 charger, programmed on every attach the way the
+ *    vendor 3.10 kernel does it: dedicated chargers get 2000 mA fast
+ *    charge behind an 1800 mA input limit with AICL, anything else runs in
+ *    USB5 (500 mA) mode; 4320 mV float, lowered to 4180 mV below 10 or
+ *    above 45 degC (vendor battery swelling protection), charging stopped
+ *    below -5 or above 58 degC. Unlike the vendor code, end of charge and
+ *    recharge are left to the charger's own termination/auto-recharge.
  */
 
 #include <linux/delay.h>
@@ -109,13 +115,69 @@
 #define ADC_SAMPLES			15
 #define ADC_DROP			3
 
-/* SMB358 registers (read only) */
+/* SMB358 charger */
+#define SMB358_CHG_CURRENT		0x00
+#define SMB358_INPUT_LIMIT		0x01
+#define SMB358_VARIOUS			0x02
+#define SMB358_FLOAT_VOLTAGE		0x03
+#define SMB358_CHG_CTRL			0x04
+#define SMB358_PIN_CTRL			0x06
+#define SMB358_THERM_A			0x07
+#define SMB358_OTHER_A			0x09
 #define SMB358_CFG_LAST			0x0d
 #define SMB358_CMD_A			0x30
+#define SMB358_CMD_B			0x31
 #define SMB358_INT_STATUS_C		0x37
 #define SMB358_STATUS_C			0x3d
+#define SMB358_STATUS_E			0x3f
 #define SMB358_STATUS_LAST		0x3f
-#define SMB358_MAX_TRIES		10
+
+/* CMD_A: bit 7 allows config writes, bit 1 enables charging */
+#define SMB358_CMD_A_VOLATILE_WR	BIT(7)
+#define SMB358_CMD_A_ON			0xc2
+#define SMB358_CMD_A_OFF		0xc0
+#define SMB358_CMD_A_HANDOVER		0x82	/* vendor shutdown value */
+#define SMB358_CMD_B_MODE		0x03
+#define SMB358_CMD_B_HC			0x03	/* INPUT_LIMIT applies */
+#define SMB358_CMD_B_USB5		0x02	/* 500 mA input limit */
+#define SMB358_STAT_E_AICL_DONE		BIT(4)
+#define SMB358_STAT_E_AICL_MASK		0x0f
+
+/* values the vendor driver writes on attach */
+#define SMB358_CUR_DCP			0xff	/* 2000 mA fast, 200 mA term */
+#define SMB358_CUR_USB			0x5f	/* 600 mA fast, 200 mA term */
+#define SMB358_INLIM_DCP		0x60	/* 1800 mA */
+#define SMB358_INLIM_USB		0x20	/* 700 mA, capped by USB5 */
+#define SMB358_INLIM_MASK		0xf0
+#define SMB358_VARIOUS_AICL_OFF		0x81
+#define SMB358_VARIOUS_AICL_ON		0x95
+#define SMB358_FLOAT_NORMAL		0x29	/* 4320 mV */
+#define SMB358_FLOAT_SWELLING		0x22	/* 4180 mV */
+#define SMB358_PIN_CTRL_I2C		0x09	/* charge enable from CMD_A */
+/* THERM_A bit 6 clear + OTHER_A bit 4 set: 3.15 V minimum system voltage */
+#define SMB358_THERM_A_MINSYS		BIT(6)
+#define SMB358_OTHER_A_MINSYS		BIT(4)
+#define SMB358_THERM_A_DEFAULT		0xf0
+/* vendor: 0xc0, no termination or auto-recharge (done in software) */
+#define SMB358_CHG_CTRL_HW_TERM		0x00
+
+/* SM5504 MUIC (read only) */
+#define SM5504_DEVICE_ID		0x01
+#define SM5504_ADC			0x07
+#define SM5504_DEV_T1			0x0a
+#define SM5504_DEV_T2			0x0b
+#define SM5504_CHG_TYPE			0x24
+#define SM5504_VENDOR_MASK		0x07
+#define SM5504_VENDOR_ID		0x01
+#define SM5504_T1_DCP			BIT(6)
+#define SM5504_T1_CDP			BIT(5)
+#define SM5504_T1_SDP			BIT(2)
+#define SM5504_CT_DCP			BIT(0)
+#define SM5504_CT_CDP			BIT(1)
+#define SM5504_CT_SDP			BIT(2)
+#define SM5504_CT_SDP_TIMEOUT		BIT(3)
+
+#define FGU_I2C_MAX_TRIES		10
 
 /* temperatures in 0.1 degC */
 #define FGU_TEMP_DEFAULT		250
@@ -123,6 +185,11 @@
 #define FGU_TEMP_HOT_RECOVER		530
 #define FGU_TEMP_COLD			(-50)
 #define FGU_TEMP_COLD_RECOVER		0
+/* vendor CONFIG_BATTERY_SWELLING: float voltage lowered outside 10..45 degC */
+#define FGU_SWELL_HOT			450
+#define FGU_SWELL_HOT_RECOVER		400
+#define FGU_SWELL_COLD			100
+#define FGU_SWELL_COLD_RECOVER		150
 /*
  * Keep the reported value below Android's 68 degC emergency shutdown so a
  * bad NTC reading cannot shut the tablet down while this port is young;
@@ -142,6 +209,37 @@
 #define FGU_POLL_FAST			msecs_to_jiffies(10000)
 #define FGU_VCHG_DEBOUNCE		msecs_to_jiffies(300)
 #define FGU_LOG_EVERY			15
+/* charger type detection: first MUIC read after VBUS, then retries */
+#define FGU_DET_DELAY			msecs_to_jiffies(700)
+#define FGU_DET_RETRY			msecs_to_jiffies(500)
+#define FGU_DET_TRIES			8
+#define FGU_AICL_DELAY			msecs_to_jiffies(2000)
+#define FGU_AICL_RETRY			msecs_to_jiffies(1000)
+#define FGU_AICL_TRIES			10	/* restarted halfway */
+#define FGU_CFG_MAX_FAILS		3
+#define FGU_CHG_CHECK_EVERY		3	/* polls */
+
+#define FGU_DCP_INPUT_UA		1800000
+#define FGU_USB_INPUT_UA		500000
+#define FGU_VBUS_UV			5000000
+
+enum fgu_cable {
+	FGU_CABLE_NONE,
+	FGU_CABLE_PENDING,	/* VBUS seen, MUIC detection running */
+	FGU_CABLE_SDP,
+	FGU_CABLE_CDP,
+	FGU_CABLE_DCP,
+	FGU_CABLE_OTHER,	/* unknown source, handled like a USB port */
+};
+
+static const char * const fgu_cable_str[] = {
+	[FGU_CABLE_NONE]	= "none",
+	[FGU_CABLE_PENDING]	= "pending",
+	[FGU_CABLE_SDP]		= "usb",
+	[FGU_CABLE_CDP]		= "usb-cdp",
+	[FGU_CABLE_DCP]		= "dcp",
+	[FGU_CABLE_OTHER]	= "unknown",
+};
 
 struct fgu_tab {
 	s32 x;
@@ -154,6 +252,8 @@ struct sc2723_fgu {
 	struct delayed_work work;
 	struct power_supply *bat;
 	struct power_supply *ac;
+	struct power_supply *usb;
+	struct delayed_work chg_work;
 
 	struct gpio_desc *vchg;
 	int vchg_irq;
@@ -167,6 +267,21 @@ struct sc2723_fgu {
 	unsigned int chg_tries;
 	unsigned int chg_errs;
 	int chg_stat_c;
+	struct device_node *muic_np;
+	struct i2c_client *muic;
+	unsigned int muic_tries;
+
+	/* charger control, see fgu_chg_work() */
+	int cable;
+	unsigned int det_tries;
+	unsigned int cfg_fails;
+	unsigned int aicl_tries;
+	bool chg_queued;	/* chg_work queued by us */
+	bool chg_cfg;		/* SMB358 set up for the current cable */
+	bool chg_idle;		/* SMB358 back in USB5 mode, no cable */
+	bool aicl_pending;
+	bool chg_block;		/* charging stopped, battery too hot/cold */
+	bool swelling;		/* float voltage lowered */
 
 	/* board data */
 	int cnom;		/* mAh */
@@ -218,7 +333,7 @@ struct sc2723_fgu {
 	unsigned int polls;
 };
 
-static char *fgu_ac_supplied_to[] = { "battery" };
+static char *fgu_supplied_to[] = { "battery" };
 
 static inline int fgu_rd(unsigned long reg)
 {
@@ -551,7 +666,7 @@ static int fgu_smooth(struct sc2723_fgu *f, int cap, int status, int cur,
 	return clamp(cap, ui - step, ui + step);
 }
 
-/* ---- SMB358 (read only) ---- */
+/* ---- SMB358 charger, SM5504 MUIC ---- */
 
 static const u16 smb358_fast_ma[] = {
 	200, 450, 600, 900, 1300, 1500, 1800, 2000
@@ -561,6 +676,9 @@ static const u16 smb358_term_ma[] = {
 };
 static const u16 smb358_inlim_ma[] = {
 	300, 500, 700, 1000, 1200, 1500, 1800, 2000
+};
+static const u16 smb358_aicl_ma[] = {
+	300, 500, 700, 1000, 1200, 1300, 1800, 2000
 };
 
 static int smb358_float_mv(u8 v)
@@ -600,29 +718,260 @@ static void smb358_dump(struct sc2723_fgu *f, bool config)
 		 SMB358_STATUS_LAST - SMB358_CMD_A + 1, regs);
 }
 
+static struct i2c_client *fgu_i2c_get(struct sc2723_fgu *f,
+				      struct device_node *np,
+				      unsigned int *tries, const char *name,
+				      u8 reg, int *val)
+{
+	struct i2c_client *c;
+
+	if (!np || *tries >= FGU_I2C_MAX_TRIES)
+		return NULL;
+
+	(*tries)++;
+	c = of_find_i2c_device_by_node(np);
+	if (!c) {
+		if (*tries == FGU_I2C_MAX_TRIES)
+			dev_warn(f->dev, "%s: no i2c client\n", name);
+		return NULL;
+	}
+
+	*val = i2c_smbus_read_byte_data(c, reg);
+	if (*val < 0) {
+		dev_warn(f->dev, "%s: %s not responding (try %u)\n", name,
+			 dev_name(&c->dev), *tries);
+		put_device(&c->dev);
+		return NULL;
+	}
+
+	return c;
+}
+
 static void fgu_charger_attach(struct sc2723_fgu *f)
 {
-	if (f->chg || !f->chg_np || f->chg_tries >= SMB358_MAX_TRIES)
-		return;
+	int v = 0;
 
-	f->chg_tries++;
-	f->chg = of_find_i2c_device_by_node(f->chg_np);
 	if (!f->chg) {
-		if (f->chg_tries == SMB358_MAX_TRIES)
-			dev_warn(f->dev, "smb358: no i2c client, status from gauge only\n");
+		f->chg = fgu_i2c_get(f, f->chg_np, &f->chg_tries, "smb358",
+				     SMB358_STATUS_C, &v);
+		if (f->chg) {
+			dev_info(f->dev, "smb358: using %s\n",
+				 dev_name(&f->chg->dev));
+			smb358_dump(f, true);
+		}
+	}
+
+	if (!f->muic) {
+		f->muic = fgu_i2c_get(f, f->muic_np, &f->muic_tries, "sm5504",
+				      SM5504_DEVICE_ID, &v);
+		if (f->muic && (v & SM5504_VENDOR_MASK) != SM5504_VENDOR_ID) {
+			dev_warn(f->dev, "sm5504: unexpected device id %#04x\n",
+				 v);
+			put_device(&f->muic->dev);
+			f->muic = NULL;
+			f->muic_tries = FGU_I2C_MAX_TRIES;
+		} else if (f->muic) {
+			dev_info(f->dev, "sm5504: using %s (device id %#04x)\n",
+				 dev_name(&f->muic->dev), v);
+		}
+	}
+}
+
+struct smb358_reg_val {
+	u8 reg;
+	u8 val;
+};
+
+static int smb358_write(struct sc2723_fgu *f, u8 reg, u8 val)
+{
+	int ret = i2c_smbus_write_byte_data(f->chg, reg, val);
+
+	if (ret < 0)
+		dev_warn(f->dev, "smb358: writing %02x to reg %02x failed: %d\n",
+			 val, reg, ret);
+	return ret;
+}
+
+/* read-modify-write, skipped if nothing changes */
+static int smb358_update(struct sc2723_fgu *f, u8 reg, u8 mask, u8 val)
+{
+	int v = i2c_smbus_read_byte_data(f->chg, reg);
+
+	if (v < 0)
+		return v;
+	val = (v & ~mask) | (val & mask);
+	return val == v ? 0 : smb358_write(f, reg, val);
+}
+
+static bool fgu_is_dcp(struct sc2723_fgu *f)
+{
+	return f->cable == FGU_CABLE_DCP;
+}
+
+static u8 smb358_want_mode(struct sc2723_fgu *f)
+{
+	return fgu_is_dcp(f) ? SMB358_CMD_B_HC : SMB358_CMD_B_USB5;
+}
+
+static u8 smb358_want_cur(struct sc2723_fgu *f)
+{
+	return fgu_is_dcp(f) ? SMB358_CUR_DCP : SMB358_CUR_USB;
+}
+
+static u8 smb358_want_float(struct sc2723_fgu *f)
+{
+	return f->swelling ? SMB358_FLOAT_SWELLING : SMB358_FLOAT_NORMAL;
+}
+
+static u8 smb358_want_cmd_a(struct sc2723_fgu *f)
+{
+	return f->chg_block ? SMB358_CMD_A_OFF : SMB358_CMD_A_ON;
+}
+
+/* no cable: back to USB5 so that the next attach starts at 500 mA */
+static void smb358_idle(struct sc2723_fgu *f)
+{
+	f->chg_idle = !smb358_update(f, SMB358_CMD_B, SMB358_CMD_B_MODE,
+				     SMB358_CMD_B_USB5);
+}
+
+/*
+ * Same register sequence as the attach path of the vendor smb358_charger.c,
+ * minus its software end-of-charge handling and the safety timer and
+ * thermal regulation writes, which keep their power-on values here.
+ */
+static void smb358_configure(struct sc2723_fgu *f)
+{
+	bool dcp = fgu_is_dcp(f);
+	u8 mode = smb358_want_mode(f), cur = smb358_want_cur(f);
+	u8 inlim = dcp ? SMB358_INLIM_DCP : SMB358_INLIM_USB;
+	int therm = i2c_smbus_read_byte_data(f->chg, SMB358_THERM_A);
+	int other = i2c_smbus_read_byte_data(f->chg, SMB358_OTHER_A);
+	const struct smb358_reg_val seq[] = {
+		/* charging off while reprogramming, config writes allowed */
+		{ SMB358_CMD_A,		SMB358_CMD_A_OFF },
+		{ SMB358_CMD_B,		mode },
+		{ SMB358_CHG_CURRENT,	cur },
+		{ SMB358_PIN_CTRL,	SMB358_PIN_CTRL_I2C },
+		{ SMB358_INPUT_LIMIT,	inlim },
+		/* AICL off and on again restarts input current detection */
+		{ SMB358_VARIOUS,	SMB358_VARIOUS_AICL_OFF },
+		{ SMB358_VARIOUS,	SMB358_VARIOUS_AICL_ON },
+		{ SMB358_FLOAT_VOLTAGE,	smb358_want_float(f) },
+		{ SMB358_CHG_CTRL,	SMB358_CHG_CTRL_HW_TERM },
+		{ SMB358_THERM_A,	therm & ~SMB358_THERM_A_MINSYS },
+		{ SMB358_OTHER_A,	other | SMB358_OTHER_A_MINSYS },
+		{ SMB358_CMD_A,		smb358_want_cmd_a(f) },
+	};
+	int i, rb_cur, rb_inlim, rb_mode, errs = 0;
+
+	for (i = 0; i < ARRAY_SIZE(seq); i++) {
+		if ((seq[i].reg == SMB358_THERM_A && therm < 0) ||
+		    (seq[i].reg == SMB358_OTHER_A && other < 0)) {
+			errs++;
+			continue;
+		}
+		errs += smb358_write(f, seq[i].reg, seq[i].val) < 0;
+	}
+
+	rb_cur = i2c_smbus_read_byte_data(f->chg, SMB358_CHG_CURRENT);
+	rb_inlim = i2c_smbus_read_byte_data(f->chg, SMB358_INPUT_LIMIT);
+	rb_mode = i2c_smbus_read_byte_data(f->chg, SMB358_CMD_B);
+	if (errs || rb_cur != cur || rb_inlim < 0 ||
+	    (rb_inlim & SMB358_INLIM_MASK) != inlim || rb_mode < 0 ||
+	    (rb_mode & SMB358_CMD_B_MODE) != mode) {
+		f->cfg_fails++;
+		dev_warn(f->dev,
+			 "smb358: %s setup failed (%d errors, read back %d %d %d), attempt %u\n",
+			 fgu_cable_str[f->cable], errs, rb_cur, rb_inlim,
+			 rb_mode, f->cfg_fails);
+		smb358_dump(f, true);
 		return;
 	}
 
-	if (i2c_smbus_read_byte_data(f->chg, SMB358_STATUS_C) < 0) {
-		dev_warn(f->dev, "smb358: %s not responding (try %u)\n",
-			 dev_name(&f->chg->dev), f->chg_tries);
-		put_device(&f->chg->dev);
-		f->chg = NULL;
-		return;
-	}
-
-	dev_info(f->dev, "smb358: using %s\n", dev_name(&f->chg->dev));
+	f->chg_cfg = true;
+	dev_info(f->dev, "smb358: %s setup: fast %dmA, input %dmA (%s), float %dmV%s\n",
+		 fgu_cable_str[f->cable], smb358_fast_ma[cur >> 5],
+		 dcp ? smb358_inlim_ma[inlim >> 4] : 500,
+		 dcp ? "aicl" : "usb5",
+		 smb358_float_mv(smb358_want_float(f)),
+		 f->chg_block ? ", charging stopped (temperature)" : "");
 	smb358_dump(f, true);
+}
+
+/* temperature limits, applied on every poll while a cable is present */
+static void smb358_apply_limits(struct sc2723_fgu *f)
+{
+	smb358_update(f, SMB358_FLOAT_VOLTAGE, 0xff, smb358_want_float(f));
+	smb358_update(f, SMB358_CMD_A, 0xff, smb358_want_cmd_a(f));
+}
+
+/* returns false while the AICL result should be checked again */
+static bool smb358_aicl(struct sc2723_fgu *f)
+{
+	int e = i2c_smbus_read_byte_data(f->chg, SMB358_STATUS_E);
+
+	f->aicl_tries++;
+	if (e >= 0 && (e & SMB358_STAT_E_AICL_DONE)) {
+		dev_info(f->dev, "smb358: aicl done, input limit %dmA (status_e %02x, check %u)\n",
+			 smb358_aicl_ma[min(e & SMB358_STAT_E_AICL_MASK, 7)],
+			 e, f->aicl_tries);
+		return true;
+	}
+	if (f->aicl_tries >= FGU_AICL_TRIES) {
+		dev_warn(f->dev, "smb358: aicl not done (status_e %d)\n", e);
+		smb358_dump(f, false);
+		return true;
+	}
+	if (f->aicl_tries == FGU_AICL_TRIES / 2) {
+		dev_info(f->dev, "smb358: aicl not done (status_e %d), restarting it\n",
+			 e);
+		smb358_write(f, SMB358_VARIOUS, SMB358_VARIOUS_AICL_OFF);
+		smb358_write(f, SMB358_VARIOUS, SMB358_VARIOUS_AICL_ON);
+	}
+	return false;
+}
+
+static int fgu_muic_detect(struct sc2723_fgu *f)
+{
+	bool last = ++f->det_tries >= FGU_DET_TRIES;
+	int t1, t2, adc, ct, cable;
+
+	if (!f->muic)
+		fgu_charger_attach(f);
+	if (!f->muic) {
+		if (!last && f->muic_np && f->muic_tries < FGU_I2C_MAX_TRIES)
+			return FGU_CABLE_PENDING;
+		dev_info(f->dev, "cable: no MUIC, assuming a USB port\n");
+		return FGU_CABLE_OTHER;
+	}
+
+	t1 = i2c_smbus_read_byte_data(f->muic, SM5504_DEV_T1);
+	t2 = i2c_smbus_read_byte_data(f->muic, SM5504_DEV_T2);
+	adc = i2c_smbus_read_byte_data(f->muic, SM5504_ADC);
+	ct = i2c_smbus_read_byte_data(f->muic, SM5504_CHG_TYPE);
+	if (t1 < 0 || t2 < 0 || adc < 0 || ct < 0) {
+		dev_warn(f->dev, "sm5504: read failed (%d %d %d %d)\n",
+			 t1, t2, adc, ct);
+		return last ? FGU_CABLE_OTHER : FGU_CABLE_PENDING;
+	}
+
+	/* any sign of a data port wins: never pull more than 500 mA there */
+	if ((t1 & SM5504_T1_CDP) || (ct & SM5504_CT_CDP))
+		cable = FGU_CABLE_CDP;
+	else if ((t1 & SM5504_T1_SDP) ||
+		 (ct & (SM5504_CT_SDP | SM5504_CT_SDP_TIMEOUT)))
+		cable = FGU_CABLE_SDP;
+	else if ((t1 & SM5504_T1_DCP) || (ct & SM5504_CT_DCP))
+		cable = FGU_CABLE_DCP;
+	else if (last)
+		cable = FGU_CABLE_OTHER;
+	else
+		return FGU_CABLE_PENDING;
+
+	dev_info(f->dev, "cable: %s (dev_t1 %02x dev_t2 %02x adc %02x chg_type %02x, try %u)\n",
+		 fgu_cable_str[cable], t1, t2, adc, ct, f->det_tries);
+	return cable;
 }
 
 static int fgu_charge_status(struct sc2723_fgu *f, int cur)
@@ -670,15 +1019,120 @@ static const char * const fgu_status_str[] = {
 static void fgu_log(struct sc2723_fgu *f, s32 cc)
 {
 	dev_info(f->dev,
-		 "cap %d%% (gauge %d%%) vbat %dmV ocv %dmV%s cur %dmA avg %dmA cc %d temp %d (adc %d) %s ac %d chg %02x\n",
+		 "cap %d%% (gauge %d%%) vbat %dmV ocv %dmV%s cur %dmA avg %dmA cc %d temp %d (adc %d) %s cable %s chg %02x\n",
 		 f->ui_cap, f->raw_cap, f->vbat_mv, f->ocv_mv,
 		 f->ocv_hw ? "(hw)" : "", f->cur_ma, f->cur_avg_ma, cc,
-		 f->temp, f->temp_raw, fgu_status_str[f->status], f->online,
-		 f->chg_stat_c & 0xff);
+		 f->temp, f->temp_raw, fgu_status_str[f->status],
+		 fgu_cable_str[f->cable], f->chg_stat_c & 0xff);
 }
 
-/* returns true if the battery supply changed; *ac set if "ac" changed */
-static bool fgu_update(struct sc2723_fgu *f, bool *ac)
+/* vendor thresholds, see the FGU_TEMP_* and FGU_SWELL_* definitions */
+static void fgu_thermal(struct sc2723_fgu *f)
+{
+	bool block = f->health == POWER_SUPPLY_HEALTH_OVERHEAT ||
+		     f->health == POWER_SUPPLY_HEALTH_COLD;
+	bool swell = f->swelling;
+
+	if (f->temp >= FGU_SWELL_HOT || f->temp <= FGU_SWELL_COLD)
+		swell = true;
+	else if (f->temp <= FGU_SWELL_HOT_RECOVER &&
+		 f->temp >= FGU_SWELL_COLD_RECOVER)
+		swell = false;
+
+	if (block != f->chg_block || swell != f->swelling)
+		dev_info(f->dev, "charger: temp %d, charging %s, float %dmV\n",
+			 f->temp, block ? "stopped" : "allowed",
+			 smb358_float_mv(swell ? SMB358_FLOAT_SWELLING :
+					 SMB358_FLOAT_NORMAL));
+	f->chg_block = block;
+	f->swelling = swell;
+}
+
+static void fgu_ext_changed(struct sc2723_fgu *f)
+{
+	power_supply_changed(f->ac);
+	if (f->usb)
+		power_supply_changed(f->usb);
+}
+
+/* caller holds f->lock */
+static void fgu_chg_queue(struct sc2723_fgu *f, unsigned long delay)
+{
+	f->chg_queued = true;
+	mod_delayed_work(system_freezable_wq, &f->chg_work, delay);
+}
+
+/*
+ * Stay awake while a charger is attached: without RTC alarm wakeups the
+ * temperature checks would stop in suspend while the SMB358 keeps
+ * charging at up to 2 A.
+ */
+static void fgu_cable_start(struct sc2723_fgu *f, unsigned long delay)
+{
+	pm_stay_awake(f->dev);
+	f->cable = FGU_CABLE_PENDING;
+	f->det_tries = 0;
+	f->cfg_fails = 0;
+	f->chg_cfg = false;
+	f->chg_idle = false;
+	f->aicl_pending = false;
+	fgu_chg_queue(f, delay);
+}
+
+static void fgu_cable_stop(struct sc2723_fgu *f)
+{
+	cancel_delayed_work(&f->chg_work);
+	f->chg_queued = false;
+	f->cable = FGU_CABLE_NONE;
+	f->chg_cfg = false;
+	f->aicl_pending = false;
+	if (f->chg)
+		smb358_idle(f);
+	pm_relax(f->dev);
+}
+
+static void fgu_charger_poll(struct sc2723_fgu *f)
+{
+	int b, c;
+
+	fgu_thermal(f);
+
+	if (!f->online) {
+		if (f->chg && !f->chg_idle)
+			smb358_idle(f);
+		return;
+	}
+
+	/* charger plugged in before boot */
+	if (f->cable == FGU_CABLE_NONE) {
+		fgu_cable_start(f, 0);
+		return;
+	}
+
+	if (f->chg && f->cable != FGU_CABLE_PENDING)
+		smb358_apply_limits(f);
+
+	if (f->chg && f->chg_cfg && !(f->polls % FGU_CHG_CHECK_EVERY)) {
+		b = i2c_smbus_read_byte_data(f->chg, SMB358_CMD_B);
+		c = i2c_smbus_read_byte_data(f->chg, SMB358_CHG_CURRENT);
+		if (b >= 0 && c >= 0 &&
+		    ((b & SMB358_CMD_B_MODE) != smb358_want_mode(f) ||
+		     c != smb358_want_cur(f))) {
+			dev_warn(f->dev, "smb358: setup lost (cmd_b %02x chg_current %02x), redoing it\n",
+				 b, c);
+			f->chg_cfg = false;
+		}
+	}
+
+	/* resume, late SMB358 probe, lost or failed setup */
+	if (!f->chg_queued &&
+	    (f->cable == FGU_CABLE_PENDING || f->aicl_pending ||
+	     (f->chg && !f->chg_cfg && f->cfg_fails < FGU_CFG_MAX_FAILS)))
+		fgu_chg_queue(f, 0);
+}
+
+/* returns true if the battery supply changed; *ext set if "ac"/"usb" did */
+static bool fgu_update(struct sc2723_fgu *f, bool *ext)
 {
 	int vraw, craw, cur, cap, ui, status, health, online;
 	ktime_t now = ktime_get_boottime();
@@ -694,9 +1148,13 @@ static bool fgu_update(struct sc2723_fgu *f, bool *ac)
 		online = gpiod_get_value(f->vchg);
 		if (online >= 0 && online != f->online) {
 			f->online = online;
-			*ac = changed = log = true;
+			*ext = changed = log = true;
 			if (f->chg)
 				smb358_dump(f, false);
+			if (online)
+				fgu_cable_start(f, FGU_DET_DELAY);
+			else
+				fgu_cable_stop(f);
 		}
 	}
 
@@ -758,6 +1216,8 @@ static bool fgu_update(struct sc2723_fgu *f, bool *ac)
 		changed = log = true;
 	}
 
+	fgu_charger_poll(f);
+
 	if (log)
 		fgu_log(f, cc);
 
@@ -768,11 +1228,11 @@ static void fgu_work(struct work_struct *work)
 {
 	struct sc2723_fgu *f = container_of(to_delayed_work(work),
 					    struct sc2723_fgu, work);
-	bool ac = false, bat;
+	bool ext = false, bat;
 	unsigned long delay;
 
 	mutex_lock(&f->lock);
-	bat = fgu_update(f, &ac);
+	bat = fgu_update(f, &ext);
 	delay = (f->ui_cap <= 5 || f->vchg_irq <= 0 || f->irq_storm) ?
 		FGU_POLL_FAST : FGU_POLL;
 	if (f->irq_storm && !f->irq_storm_logged) {
@@ -781,12 +1241,65 @@ static void fgu_work(struct work_struct *work)
 	}
 	mutex_unlock(&f->lock);
 
-	if (ac)
-		power_supply_changed(f->ac);
+	if (ext)
+		fgu_ext_changed(f);
 	if (bat)
 		power_supply_changed(f->bat);
 
 	queue_delayed_work(system_freezable_wq, &f->work, delay);
+}
+
+/*
+ * Charger state machine, kicked by VBUS changes: charger type detection
+ * (retried until the MUIC reports a type), SMB358 setup for that type,
+ * then AICL result checks on dedicated chargers.
+ */
+static void fgu_chg_work(struct work_struct *work)
+{
+	struct sc2723_fgu *f = container_of(to_delayed_work(work),
+					    struct sc2723_fgu, chg_work);
+	bool ext = false;
+
+	mutex_lock(&f->lock);
+	f->chg_queued = false;
+	if (!f->online)
+		goto out;
+
+	if (f->cable == FGU_CABLE_PENDING) {
+		f->cable = fgu_muic_detect(f);
+		if (f->cable == FGU_CABLE_PENDING) {
+			fgu_chg_queue(f, FGU_DET_RETRY);
+			goto out;
+		}
+		ext = true;
+	}
+
+	if (!f->chg)
+		goto out;
+
+	if (!f->chg_cfg) {
+		if (f->cfg_fails >= FGU_CFG_MAX_FAILS)
+			goto out;
+		smb358_configure(f);
+		if (f->chg_cfg && fgu_is_dcp(f)) {
+			f->aicl_pending = true;
+			f->aicl_tries = 0;
+			fgu_chg_queue(f, FGU_AICL_DELAY);
+		}
+		goto out;
+	}
+
+	if (f->aicl_pending) {
+		if (smb358_aicl(f))
+			f->aicl_pending = false;
+		else
+			fgu_chg_queue(f, FGU_AICL_RETRY);
+	}
+out:
+	mutex_unlock(&f->lock);
+
+	if (ext)
+		fgu_ext_changed(f);
 }
 
 static irqreturn_t fgu_vchg_isr(int irq, void *data)
@@ -871,7 +1384,9 @@ static void fgu_init_capacity(struct sc2723_fgu *f)
 		cap = sane ? est : 50;
 		src = sane ? "invalid saved value, soft ocv" :
 			     "invalid saved value, no usable sample";
-	} else if (sane && abs(saved - est) > FGU_STALE_SAVED_DIFF) {
+	} else if (sane && !f->online &&
+		   abs(saved - est) > FGU_STALE_SAVED_DIFF) {
+		/* only on battery: charging skews the estimate upwards */
 		cap = est;
 		src = "stale saved value, soft ocv";
 	} else {
@@ -953,6 +1468,7 @@ static int fgu_parse_dt(struct sc2723_fgu *f)
 	f->shutdown_mv = f->ocv_tab[f->ocv_len - 1].x;
 	f->warning_cap = fgu_vol2cap(f, f->alm_mv);
 	f->chg_np = of_parse_phandle(np, "sprd,charger", 0);
+	f->muic_np = of_parse_phandle(np, "sprd,muic", 0);
 
 	return 0;
 }
@@ -1018,14 +1534,29 @@ static int fgu_bat_get(struct power_supply *psy, enum power_supply_property psp,
 	return ret;
 }
 
-static int fgu_ac_get(struct power_supply *psy, enum power_supply_property psp,
-		      union power_supply_propval *val)
+/* "ac" for dedicated chargers, "usb" for everything else */
+static int fgu_ext_get(struct power_supply *psy,
+		       enum power_supply_property psp,
+		       union power_supply_propval *val)
 {
 	struct sc2723_fgu *f = power_supply_get_drvdata(psy);
+	bool mains = psy->desc->type == POWER_SUPPLY_TYPE_MAINS;
 
-	if (psp != POWER_SUPPLY_PROP_ONLINE)
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		/* "usb" also covers the detection window */
+		val->intval = f->online &&
+			      (f->cable == FGU_CABLE_DCP) == mains;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		val->intval = mains ? FGU_DCP_INPUT_UA : FGU_USB_INPUT_UA;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		val->intval = FGU_VBUS_UV;
+		break;
+	default:
 		return -EINVAL;
-	val->intval = f->online;
+	}
 
 	return 0;
 }
@@ -1046,8 +1577,10 @@ static enum power_supply_property fgu_bat_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 };
 
-static enum power_supply_property fgu_ac_props[] = {
+static enum power_supply_property fgu_ext_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 };
 
 static const struct power_supply_desc fgu_bat_desc = {
@@ -1061,15 +1594,23 @@ static const struct power_supply_desc fgu_bat_desc = {
 static const struct power_supply_desc fgu_ac_desc = {
 	.name		= "ac",
 	.type		= POWER_SUPPLY_TYPE_MAINS,
-	.properties	= fgu_ac_props,
-	.num_properties	= ARRAY_SIZE(fgu_ac_props),
-	.get_property	= fgu_ac_get,
+	.properties	= fgu_ext_props,
+	.num_properties	= ARRAY_SIZE(fgu_ext_props),
+	.get_property	= fgu_ext_get,
+};
+
+static const struct power_supply_desc fgu_usb_desc = {
+	.name		= "usb",
+	.type		= POWER_SUPPLY_TYPE_USB,
+	.properties	= fgu_ext_props,
+	.num_properties	= ARRAY_SIZE(fgu_ext_props),
+	.get_property	= fgu_ext_get,
 };
 
 static int sc2723_fgu_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct power_supply_config bcfg = {}, acfg = {};
+	struct power_supply_config bcfg = {}, ecfg = {};
 	struct sc2723_fgu *f;
 	int ret, level;
 
@@ -1079,6 +1620,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev)
 	f->dev = dev;
 	mutex_init(&f->lock);
 	INIT_DELAYED_WORK(&f->work, fgu_work);
+	INIT_DELAYED_WORK(&f->chg_work, fgu_chg_work);
 	f->status = POWER_SUPPLY_STATUS_DISCHARGING;
 	f->health = POWER_SUPPLY_HEALTH_GOOD;
 	f->temp = FGU_TEMP_DEFAULT;
@@ -1110,14 +1652,20 @@ static int sc2723_fgu_probe(struct platform_device *pdev)
 	if (f->online)
 		f->status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 
-	acfg.drv_data = f;
-	acfg.supplied_to = fgu_ac_supplied_to;
-	acfg.num_supplicants = ARRAY_SIZE(fgu_ac_supplied_to);
-	f->ac = devm_power_supply_register(dev, &fgu_ac_desc, &acfg);
+	ecfg.drv_data = f;
+	ecfg.supplied_to = fgu_supplied_to;
+	ecfg.num_supplicants = ARRAY_SIZE(fgu_supplied_to);
+	f->ac = devm_power_supply_register(dev, &fgu_ac_desc, &ecfg);
 	if (IS_ERR(f->ac)) {
 		ret = PTR_ERR(f->ac);
 		dev_err(dev, "failed to register ac: %d\n", ret);
 		goto err_np;
+	}
+	f->usb = devm_power_supply_register(dev, &fgu_usb_desc, &ecfg);
+	if (IS_ERR(f->usb)) {
+		dev_warn(dev, "failed to register usb: %ld\n",
+			 PTR_ERR(f->usb));
+		f->usb = NULL;
 	}
 
 	bcfg.drv_data = f;
@@ -1151,7 +1699,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev)
 			 f->vchg_irq);
 	}
 
-	dev_info(dev, "cnom %dmAh rint %dmOhm alm %dmV uvlo %dmV warn %d%% ocv %d..%dmV, ac %d irq %d\n",
+	dev_info(dev, "cnom %dmAh rint %dmOhm alm %dmV uvlo %dmV warn %d%% ocv %d..%dmV, online %d irq %d\n",
 		 f->cnom, f->rint, f->alm_mv, f->uvlo_mv, f->warning_cap,
 		 f->shutdown_mv, f->full_mv, f->online, f->vchg_irq);
 
@@ -1160,6 +1708,7 @@ static int sc2723_fgu_probe(struct platform_device *pdev)
 	return 0;
 
 err_np:
+	of_node_put(f->muic_np);
 	of_node_put(f->chg_np);
 	return ret;
 }
@@ -1171,11 +1720,35 @@ static int sc2723_fgu_remove(struct platform_device *pdev)
 	if (f->vchg_irq > 0)
 		disable_irq(f->vchg_irq);
 	cancel_delayed_work_sync(&f->work);
+	cancel_delayed_work_sync(&f->chg_work);
+	if (f->muic)
+		put_device(&f->muic->dev);
 	if (f->chg)
 		put_device(&f->chg->dev);
+	of_node_put(f->muic_np);
 	of_node_put(f->chg_np);
 
 	return 0;
+}
+
+/* hand the charger over the way the vendor kernel does on power off */
+static void sc2723_fgu_shutdown(struct platform_device *pdev)
+{
+	struct sc2723_fgu *f = platform_get_drvdata(pdev);
+
+	if (f->vchg_irq > 0)
+		disable_irq(f->vchg_irq);
+	cancel_delayed_work_sync(&f->work);
+	cancel_delayed_work_sync(&f->chg_work);
+
+	mutex_lock(&f->lock);
+	if (f->chg) {
+		smb358_write(f, SMB358_THERM_A, SMB358_THERM_A_DEFAULT);
+		smb358_write(f, SMB358_CMD_A, SMB358_CMD_A_HANDOVER);
+		smb358_write(f, SMB358_CMD_A, SMB358_CMD_A_HANDOVER &
+			     ~SMB358_CMD_A_VOLATILE_WR);
+	}
+	mutex_unlock(&f->lock);
 }
 
 static int __maybe_unused sc2723_fgu_suspend(struct device *dev)
@@ -1183,6 +1756,10 @@ static int __maybe_unused sc2723_fgu_suspend(struct device *dev)
 	struct sc2723_fgu *f = dev_get_drvdata(dev);
 
 	cancel_delayed_work_sync(&f->work);
+	cancel_delayed_work_sync(&f->chg_work);
+	mutex_lock(&f->lock);
+	f->chg_queued = false;	/* fgu_update() requeues it on resume */
+	mutex_unlock(&f->lock);
 	return 0;
 }
 
@@ -1204,9 +1781,10 @@ static const struct of_device_id sc2723_fgu_of_match[] = {
 MODULE_DEVICE_TABLE(of, sc2723_fgu_of_match);
 
 static struct platform_driver sc2723_fgu_driver = {
-	.probe	= sc2723_fgu_probe,
-	.remove	= sc2723_fgu_remove,
-	.driver	= {
+	.probe		= sc2723_fgu_probe,
+	.remove		= sc2723_fgu_remove,
+	.shutdown	= sc2723_fgu_shutdown,
+	.driver		= {
 		.name		= "sc2723-fgu",
 		.of_match_table	= sc2723_fgu_of_match,
 		.pm		= &sc2723_fgu_pm_ops,

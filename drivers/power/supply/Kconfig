@@ -73,12 +73,13 @@ config BATTERY_SC2723_FGU
 	tristate "Spreadtrum SC2723 fuel gauge (SC7730SE)"
 	depends on ARCH_SPRD && OF && I2C && GPIOLIB
 	help
-	  Battery and AC power supply driver for SC7730SE boards such as the
-	  Samsung SM-T560. Capacity comes from the SC2723 PMIC fuel gauge
-	  (coulomb counter plus voltage/current ADCs), the battery NTC is
-	  read through the SC2723 auxiliary ADC and charger presence through
-	  a VCHG EIC line. A Summit SMB358 charger described in DT is only
-	  read for charge status; it is never reconfigured.
+	  Battery, AC and USB power supply driver for SC7730SE boards such
+	  as the Samsung SM-T560. Capacity comes from the SC2723 PMIC fuel
+	  gauge (coulomb counter plus voltage/current ADCs), the battery NTC
+	  is read through the SC2723 auxiliary ADC and charger presence
+	  through a VCHG EIC line. The charger type is read from an SM5504
+	  MUIC and the Summit SMB358 charger is set up for it on every attach
+	  with the vendor kernel's current limits and temperature rules.
 
 config BATTERY_88PM860X
 	tristate "Marvell 88PM860x battery driver"
