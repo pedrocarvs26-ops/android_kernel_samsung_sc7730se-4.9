@@ -386,6 +386,45 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "okay";
+
+		/* only read by the SC2723 FGU driver for charge status */
+		smb358: charger@6a {
+			compatible = "summit,smb358";
+			reg = <0x6a>;
+		};
+	};
+
+	/*
+	 * SC2723 fuel gauge. Battery data from the vendor 3.10
+	 * sprd-scx35_gtelwifi/gtel3g DTs (5000 mAh pack, identical on all
+	 * revisions); the NTC table is Samsung's sec_battery one.
+	 */
+	fgu: sc2723-fgu {
+		compatible = "sprd,sc2723-fgu";
+		vchg-gpios = <&a_eic 0 GPIO_ACTIVE_HIGH>;
+		sprd,charger = <&smb358>;
+		sprd,cnom-mah = <5000>;
+		sprd,rsense-real = <202>;
+		sprd,rsense-spec = <200>;
+		sprd,rint-mohm = <220>;
+		sprd,relax-current-ma = <50>;
+		sprd,alm-vbat-mv = <3500>;
+		sprd,soft-uvlo-mv = <3050>;
+		sprd,temp-adc-channel = <1>;
+		/* OCV in mV, capacity in % */
+		sprd,ocv-table = <4320 100>, <4262 95>, <4205 90>, <4152 85>,
+				 <4101 80>, <4055 75>, <4006 70>, <3968 65>,
+				 <3923 60>, <3880 55>, <3849 50>, <3824 45>,
+				 <3806 40>, <3790 35>, <3778 30>, <3770 25>,
+				 <3761 20>, <3744 15>, <3711 10>, <3690 5>,
+				 <3400 0>;
+		/* AUXADC raw value, temperature in 0.1 degC */
+		sprd,temp-table = <653 700>, <889 600>, <963 580>, <1093 530>,
+				  <1177 500>, <1307 460>, <1334 450>, <1549 400>,
+				  <1940 300>, <2392 200>, <2727 100>, <2900 50>,
+				  <3040 0>, <3210 (-50)>, <3360 (-100)>,
+				  <3537 (-200)>;
+		status = "okay";
 	};
 
 	i2c_gpio7: i2c-gpio-7 {
