@@ -55,6 +55,7 @@ obj-$(CONFIG_CXL_BASE)		+= cxl/
 obj-$(CONFIG_PANEL)             += panel.o
 obj-$(CONFIG_SPRD_VSP)		+= sprd_vsp.o
 obj-$(CONFIG_SPRD_JPG)		+= sprd_jpg.o
+obj-$(CONFIG_SPRD_IOMMU)	+= sprd_iommu.o
 
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_core.o
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_bugs.o

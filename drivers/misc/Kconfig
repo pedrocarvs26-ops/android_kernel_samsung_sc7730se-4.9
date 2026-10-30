@@ -775,7 +775,7 @@ config SPRD_VSP
 	  SC7730SE-class SoCs: register mapping, codec clock and frequency
 	  levels, engine locking and the frame interrupt, with the ioctl ABI
 	  of the vendor 3.10 kernel.  Codec buffers come from the contiguous
-	  ION MM heap.
+	  ION MM heap, or from any heap through the MM IOMMU (SPRD_IOMMU).
 
 config SPRD_JPG
 	bool "Spreadtrum JPEG codec device"
@@ -784,6 +784,17 @@ config SPRD_JPG
 	  Provides /dev/sprd_jpg for the hardware JPEG encoder and decoder
 	  used by the Spreadtrum camera HAL and codec libraries on
 	  SC7730SE-class SoCs, with the ioctl ABI of the vendor 3.10 kernel.
+
+config SPRD_IOMMU
+	bool "Spreadtrum MM IOMMU"
+	depends on ARCH_SPRD && OF && COMMON_CLK
+	select GENERIC_ALLOCATOR
+	help
+	  Drives the IOMMU in front of the VSP, JPEG and DCAM masters of
+	  the multimedia power domain on SC7730SE-class SoCs, for the ION
+	  MM_MAP/MM_UNMAP commands of the vendor 3.10 kernel, and provides
+	  /dev/sprd_iommu_mm, whose presence tells the Spreadtrum Android
+	  userspace to use it.  The OMX video codecs need it on Android 11.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
