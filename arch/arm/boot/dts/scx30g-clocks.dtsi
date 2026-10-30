@@ -572,5 +572,42 @@
 			clocks = <&ext_26m>, <&clk_96m>, <&clk_153m6>, <&clk_192m>;
 			clock-output-names = "clk_spi2";
 		};
+
+		/*
+		 * MM power domain switch and the clocks inside the domain.
+		 * clk_mm powers the domain up while it registers, so keep it
+		 * ahead of the MM muxes.
+		 */
+		clk_mm: clk_mm {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			/* MM_EB, PD_MM_TOP force shutdown */
+			reg = <0x402e0000 0x2000000 0x402b001d 0x2000000>;
+			clocks = <&clk_aon_apb>;
+			clock-output-names = "clk_mm";
+			sprd,mm-power-domain;
+		};
+
+		clk_vsp: clk_vsp {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			/* select, AXI clock gate, AHB enable */
+			reg = <0x60e00030 0x3 0x60d00008 0x20 0x60d00000 0x8>;
+			clocks = <&clk_76m8>, <&clk_128m>, <&clk_192m>,
+				 <&clk_256m>;
+			clock-output-names = "clk_vsp";
+			sprd,mm-domain;
+		};
+
+		clk_jpg: clk_jpg {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			/* select, AXI clock gate, AHB enable */
+			reg = <0x60e00038 0x3 0x60d00008 0x40 0x60d00000 0x20>;
+			clocks = <&clk_76m8>, <&clk_128m>, <&clk_192m>,
+				 <&clk_256m>;
+			clock-output-names = "clk_jpg";
+			sprd,mm-domain;
+		};
 	};
 };

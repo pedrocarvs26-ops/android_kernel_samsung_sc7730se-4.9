@@ -7,8 +7,10 @@
  * Licensed under the GPL-2.
  */
 
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
+#include <linux/init.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/kernel.h>
@@ -61,6 +63,8 @@ static void __iomem *cfg_reg_p2v(u32 regp)
 		regv = to_range(regp, SPRD_GPUCKG_PHYS, SPRD_GPUCKG_BASE);
 	else if (in_range(regp, SPRD_MMCKG_PHYS, SPRD_MMCKG_SIZE))
 		regv = to_range(regp, SPRD_MMCKG_PHYS, SPRD_MMCKG_BASE);
+	else if (in_range(regp, SPRD_MMAHB_PHYS, SPRD_MMAHB_SIZE))
+		regv = to_range(regp, SPRD_MMAHB_PHYS, SPRD_MMAHB_BASE);
 	else if (in_range(regp, SPRD_APBREG_PHYS, SPRD_APBREG_SIZE))
 		regv = to_range(regp, SPRD_APBREG_PHYS, SPRD_APBREG_BASE);
 	else if (in_range(regp, SPRD_APBCKG_PHYS, SPRD_APBCKG_SIZE))
@@ -316,6 +320,242 @@ static int sprd_clk_divider_set_rate(struct clk_hw *hw, unsigned long rate,
 	return 0;
 }
 
+/*
+ * MM power domain (VSP, JPG, DCAM/ISP, CSI)
+ *
+ * clk_mm ("sprd,mm-power-domain") is the domain switch: preparing it powers
+ * MM_TOP up and opens the MM bus, unpreparing it saves the MM clock
+ * selections and shuts the domain down again.  The clocks inside the domain
+ * ("sprd,mm-domain") hold a clk_mm reference while they are prepared, so
+ * their registers are only touched while the domain is up; while it is down
+ * the mux selections live in the saved copy.  As on 3.10 the domain is
+ * brought up when clk_mm registers, so that the boot state of the MM clocks
+ * can be read, and a late initcall shuts it down unless it is in use.
+ */
+#define MM_PD_CFG		((void __iomem *)(SPRD_PMU_BASE + 0x1c))
+#define MM_PD_FORCE_SHUTDOWN	BIT(25)
+#define MM_PD_STATUS		((void __iomem *)(SPRD_PMU_BASE + 0xbc))
+#define MM_PD_STATE		GENMASK(31, 28)
+#define MM_PD_STATE_SHIFT	28
+#define MM_PD_STATE_ON		0
+#define MM_PD_STATE_OFF		7
+#define MM_PD_POLL		100000
+#define MM_EB_REG		((void __iomem *)(SPRD_AONAPB_BASE + 0x0))
+#define MM_EB			BIT(25)
+#define MM_AHB_EB		((void __iomem *)(SPRD_MMAHB_BASE + 0x0))
+#define MM_CKG_EB		BIT(6)
+#define MM_GEN_CKG_CFG		((void __iomem *)(SPRD_MMAHB_BASE + 0x8))
+#define MM_MTX_AXI_AXI_CKG_EN	(BIT(8) | BIT(7))
+/* MM_AHB_CFG and the nine clock selects after it, as saved by 3.10 */
+#define MM_CKG_SAVED		((void __iomem *)(SPRD_MMCKG_BASE + 0x20))
+#define MM_CKG_NR		10
+#define MM_AHB_CFG_153M6	0x3
+
+static struct clk *sprd_mm_clk;
+static bool sprd_mm_on;
+static bool sprd_mm_saved;
+static u32 sprd_mm_ckg[MM_CKG_NR];
+
+static void sprd_mm_rmw(void __iomem *reg, u32 msk, bool set)
+{
+	unsigned long flags;
+	u32 val;
+
+	spin_lock_irqsave(&sprd_clk_lock, flags);
+	val = __raw_readl(reg);
+	__raw_writel(set ? val | msk : val & ~msk, reg);
+	spin_unlock_irqrestore(&sprd_clk_lock, flags);
+}
+
+/*
+ * Also used from time_init(), before the delay loop is calibrated, so the
+ * bound is generous; a timeout is reported and never ends in a bus access.
+ */
+static bool sprd_mm_pd_wait(u32 state)
+{
+	int i;
+
+	for (i = 0; i < MM_PD_POLL; i++) {
+		u32 s1 = __raw_readl(MM_PD_STATUS) & MM_PD_STATE;
+		u32 s2 = __raw_readl(MM_PD_STATUS) & MM_PD_STATE;
+
+		/* as on 3.10, trust the status only once it reads stable */
+		if (s1 == s2 && s1 == state << MM_PD_STATE_SHIFT)
+			return true;
+		udelay(1);
+	}
+	return false;
+}
+
+static void sprd_mm_save(void)
+{
+	int i;
+
+	for (i = 0; i < MM_CKG_NR; i++)
+		sprd_mm_ckg[i] = __raw_readl(MM_CKG_SAVED + 4 * i);
+	sprd_mm_saved = true;
+}
+
+static int sprd_mm_power_on(void)
+{
+	int i;
+
+	if (sprd_mm_on)
+		return 0;
+
+	__glbreg_setclr(MM_PD_CFG, MM_PD_FORCE_SHUTDOWN, 0);
+	if (!sprd_mm_pd_wait(MM_PD_STATE_ON)) {
+		pr_err("mm domain: power-up timeout, cfg %08x status %08x\n",
+		       __raw_readl(MM_PD_CFG), __raw_readl(MM_PD_STATUS));
+		return -ETIMEDOUT;
+	}
+
+	__glbreg_setclr(MM_EB_REG, MM_EB, 1);
+	__glbreg_setclr(MM_AHB_EB, MM_CKG_EB, 1);
+	sprd_mm_rmw(MM_GEN_CKG_CFG, MM_MTX_AXI_AXI_CKG_EN, true);
+	sprd_mm_rmw(MM_CKG_SAVED, MM_AHB_CFG_153M6, true);
+	if (sprd_mm_saved)
+		for (i = 0; i < MM_CKG_NR; i++)
+			__raw_writel(sprd_mm_ckg[i], MM_CKG_SAVED + 4 * i);
+
+	WRITE_ONCE(sprd_mm_on, true);
+	return 0;
+}
+
+static void sprd_mm_power_off(void)
+{
+	if (!sprd_mm_on)
+		return;
+
+	sprd_mm_save();
+	WRITE_ONCE(sprd_mm_on, false);
+	__glbreg_setclr(MM_EB_REG, MM_EB, 0);
+	__glbreg_setclr(MM_PD_CFG, MM_PD_FORCE_SHUTDOWN, 1);
+	if (!sprd_mm_pd_wait(MM_PD_STATE_OFF))
+		pr_warn("mm domain: shutdown timeout, cfg %08x status %08x\n",
+			__raw_readl(MM_PD_CFG), __raw_readl(MM_PD_STATUS));
+}
+
+static int sprd_mm_domain_prepare(struct clk_hw *hw)
+{
+	return sprd_mm_power_on();
+}
+
+static void sprd_mm_domain_unprepare(struct clk_hw *hw)
+{
+	sprd_mm_power_off();
+}
+
+static int sprd_mm_domain_is_enabled(struct clk_hw *hw)
+{
+	return READ_ONCE(sprd_mm_on);
+}
+
+static int sprd_mm_clk_prepare(struct clk_hw *hw)
+{
+	int ret;
+
+	if (!sprd_mm_clk)
+		return -ENODEV;
+
+	/* prepare_lock is recursive for its owner */
+	ret = clk_prepare(sprd_mm_clk);
+	if (ret)
+		return ret;
+	return sprd_clk_prepare(hw);
+}
+
+static void sprd_mm_clk_unprepare(struct clk_hw *hw)
+{
+	sprd_clk_unprepare(hw);
+	clk_unprepare(sprd_mm_clk);
+}
+
+/* read-modify-write, as on 3.10: the MM gates never used the aliases */
+static int sprd_mm_clk_enable(struct clk_hw *hw)
+{
+	struct clk_sprd *c = to_clk_sprd(hw);
+
+	if (c->enb.reg && READ_ONCE(sprd_mm_on))
+		sprd_mm_rmw(c->enb.reg, c->enb.msk, true);
+	return 0;
+}
+
+static void sprd_mm_clk_disable(struct clk_hw *hw)
+{
+	struct clk_sprd *c = to_clk_sprd(hw);
+
+	if (c->enb.reg && READ_ONCE(sprd_mm_on))
+		sprd_mm_rmw(c->enb.reg, c->enb.msk, false);
+}
+
+static int sprd_mm_clk_is_enabled(struct clk_hw *hw)
+{
+	return READ_ONCE(sprd_mm_on) ? sprd_clk_is_enabled(hw) : 0;
+}
+
+static u32 *sprd_mm_saved_reg(void __iomem *reg)
+{
+	unsigned long off = (unsigned long)reg - (unsigned long)MM_CKG_SAVED;
+
+	return off < sizeof(sprd_mm_ckg) ? &sprd_mm_ckg[off / 4] : NULL;
+}
+
+static u8 sprd_mm_mux_get_parent(struct clk_hw *hw)
+{
+	struct clk_sprd *c = to_clk_sprd(hw);
+	u32 *saved, val;
+
+	if (READ_ONCE(sprd_mm_on))
+		return sprd_clk_mux_get_parent(hw);
+
+	saved = sprd_mm_saved_reg(c->sel.reg);
+	if (!saved || !c->sel.msk)
+		return 0;
+	val = (*saved & c->sel.msk) >> __ffs(c->sel.msk);
+	return val < clk_hw_get_num_parents(hw) ? val : 0;
+}
+
+static int sprd_mm_mux_set_parent(struct clk_hw *hw, u8 index)
+{
+	struct clk_sprd *c = to_clk_sprd(hw);
+	u32 *saved;
+
+	if (READ_ONCE(sprd_mm_on))
+		return sprd_clk_mux_set_parent(hw, index);
+
+	/* written back by the restore on the next power-up */
+	saved = sprd_mm_saved_reg(c->sel.reg);
+	if (saved && c->sel.msk)
+		*saved = (*saved & ~c->sel.msk) |
+			 (((u32)index << __ffs(c->sel.msk)) & c->sel.msk);
+	return 0;
+}
+
+static const struct clk_ops sprd_mm_domain_ops = {
+	.prepare	= sprd_mm_domain_prepare,
+	.unprepare	= sprd_mm_domain_unprepare,
+	.is_enabled	= sprd_mm_domain_is_enabled,
+};
+
+static const struct clk_ops sprd_mm_gate_ops = {
+	.prepare	= sprd_mm_clk_prepare,
+	.unprepare	= sprd_mm_clk_unprepare,
+	.enable		= sprd_mm_clk_enable,
+	.disable	= sprd_mm_clk_disable,
+	.is_enabled	= sprd_mm_clk_is_enabled,
+};
+
+static const struct clk_ops sprd_mm_mux_ops = {
+	.prepare	= sprd_mm_clk_prepare,
+	.unprepare	= sprd_mm_clk_unprepare,
+	.enable		= sprd_mm_clk_enable,
+	.disable	= sprd_mm_clk_disable,
+	.is_enabled	= sprd_mm_clk_is_enabled,
+	.get_parent	= sprd_mm_mux_get_parent,
+	.set_parent	= sprd_mm_mux_set_parent,
+};
+
 static const struct clk_ops sprd_clk_fixed_pll_ops = {
 	.prepare	= sprd_clk_prepare,
 	.unprepare	= sprd_clk_unprepare,
@@ -528,7 +768,19 @@ static void __init of_sprd_gate_clk_setup(struct device_node *node)
 		c->flags |= CLK_GATE_SET_TO_DISABLE;
 	}
 
+	if (of_property_read_bool(node, "sprd,mm-power-domain")) {
+		init.ops = &sprd_mm_domain_ops;
+		/* the MM muxes registering next read their boot selection */
+		if (!sprd_mm_power_on())
+			sprd_mm_save();
+	} else if (of_property_read_bool(node, "sprd,mm-domain")) {
+		init.ops = &sprd_mm_gate_ops;
+	}
+
 	sprd_clk_register(NULL, node, c, &init);
+
+	if (init.ops == &sprd_mm_domain_ops && !IS_ERR_OR_NULL(c->hw.clk))
+		sprd_mm_clk = c->hw.clk;
 }
 
 static struct clk_sprd *__init __of_sprd_composite_clk_setup(struct device_node *node,
@@ -586,6 +838,13 @@ static struct clk_sprd *__init __of_sprd_composite_clk_setup(struct device_node 
 	}
 	if (selreg && divreg)
 		init.ops = &sprd_clk_composite_ops;
+	if (of_property_read_bool(node, "sprd,mm-domain")) {
+		if (selreg && !divreg)
+			init.ops = &sprd_mm_mux_ops;
+		else
+			pr_warn("%s: sprd,mm-domain is only supported on muxes\n",
+				clk_name);
+	}
 
 	sprd_clk_register(NULL, node, c, &init);
 	kfree(parent_names);
@@ -636,3 +895,14 @@ CLK_OF_DECLARE(muxed_clock, "sprd,muxed-clock", of_sprd_muxed_clk_setup);
 CLK_OF_DECLARE(divider_clock, "sprd,divider-clock", of_sprd_divider_clk_setup);
 CLK_OF_DECLARE(composite_clock, "sprd,composite-dev-clock",
 	       of_sprd_composite_clk_setup);
+
+/* Drop the boot-time MM domain power-up if no driver holds clk_mm. */
+static int __init sprd_mm_domain_late_init(void)
+{
+	if (!sprd_mm_clk || clk_prepare(sprd_mm_clk))
+		return 0;
+	clk_unprepare(sprd_mm_clk);
+	pr_info("mm domain: %s\n", READ_ONCE(sprd_mm_on) ? "in use" : "off");
+	return 0;
+}
+late_initcall(sprd_mm_domain_late_init);
