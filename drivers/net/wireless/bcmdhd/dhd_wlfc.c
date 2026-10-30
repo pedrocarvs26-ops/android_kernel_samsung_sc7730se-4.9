@@ -93,6 +93,7 @@ _dhd_wlfc_prec_enque(struct pktq *pq, int prec, void* p, bool qHead,
 		return;
 
 
+	PKTSETLINK(p, NULL);
 	ASSERT(prec >= 0 && prec < pq->num_prec);
 	ASSERT(PKTLINK(p) == NULL);         /* queueing chains not allowed */
 
@@ -100,8 +101,6 @@ _dhd_wlfc_prec_enque(struct pktq *pq, int prec, void* p, bool qHead,
 	ASSERT(!pktq_pfull(pq, prec));
 
 	q = &pq->q[prec];
-
-	PKTSETLINK(p, NULL);
 	if (q->head == NULL) {
 		/* empty queue */
 		q->head = p;

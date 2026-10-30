@@ -34,7 +34,7 @@
 #define N_BRCM_HCI 25
 
 #ifndef BCM_BT_LPM_BT_WAKE_ASSERT
-#define BCM_BT_LPM_BT_WAKE_ASSERT 0
+#define BCM_BT_LPM_BT_WAKE_ASSERT 1
 #endif
 
 #ifndef BCM_BT_LPM_BT_WAKE_DEASSERT
@@ -42,7 +42,7 @@
 #endif
 
 #ifndef BCM_BT_LPM_HOST_WAKE_ASSERT
-#define BCM_BT_LPM_HOST_WAKE_ASSERT 0
+#define BCM_BT_LPM_HOST_WAKE_ASSERT 1
 #endif
 
 #ifndef BCM_BT_LPM_HOST_WAKE_DEASSERT
@@ -115,10 +115,10 @@ static irqreturn_t bcm_bt_lpm_host_wake_isr(int irq, void *dev)
 	host_wake = gpio_get_value(priv->pdata->host_wake_gpio);
 	if (BCM_BT_LPM_HOST_WAKE_ASSERT == host_wake) {
 		wake_lock(&priv->host_wakelock);
-		irq_set_irq_type(priv->plpm->host_irq, IRQF_TRIGGER_HIGH);
+		irq_set_irq_type(priv->plpm->host_irq, IRQF_TRIGGER_LOW);
 	} else {
 		wake_unlock(&priv->host_wakelock);
-		irq_set_irq_type(priv->plpm->host_irq, IRQF_TRIGGER_LOW);
+		irq_set_irq_type(priv->plpm->host_irq, IRQF_TRIGGER_HIGH);
 	}
 	spin_unlock_irqrestore(&priv->plpm->bcm_bt_lpm_lock, flags);
 
@@ -143,7 +143,7 @@ static int bcm_bt_lpm_ensure_gpios_and_irq(struct bcm_bt_lpm_entry_struct *priv)
 			return rc;
 		}
 		gpio_direction_output(priv->pdata->bt_wake_gpio,
-				      BCM_BT_LPM_BT_WAKE_DEASSERT);
+				      BCM_BT_LPM_BT_WAKE_ASSERT);
 
 		rc = devm_gpio_request_one(&priv->pdev->dev,
 					   priv->pdata->host_wake_gpio,
@@ -164,7 +164,7 @@ static int bcm_bt_lpm_ensure_gpios_and_irq(struct bcm_bt_lpm_entry_struct *priv)
 			priv->plpm->host_irq = rc;
 			rc = request_irq(priv->plpm->host_irq,
 					 bcm_bt_lpm_host_wake_isr,
-					 IRQF_TRIGGER_LOW | IRQF_NO_SUSPEND,
+					 IRQF_TRIGGER_HIGH | IRQF_NO_SUSPEND,
 					 "bt_host_wake", priv);
 			if (!rc)
 				priv->plpm->irq_ready = true;
