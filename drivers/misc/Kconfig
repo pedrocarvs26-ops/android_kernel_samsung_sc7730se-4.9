@@ -777,6 +777,14 @@ config SPRD_VSP
 	  of the vendor 3.10 kernel.  Codec buffers come from the contiguous
 	  ION MM heap.
 
+config SPRD_JPG
+	bool "Spreadtrum JPEG codec device"
+	depends on ARCH_SPRD && OF && COMMON_CLK
+	help
+	  Provides /dev/sprd_jpg for the hardware JPEG encoder and decoder
+	  used by the Spreadtrum camera HAL and codec libraries on
+	  SC7730SE-class SoCs, with the ioctl ABI of the vendor 3.10 kernel.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
