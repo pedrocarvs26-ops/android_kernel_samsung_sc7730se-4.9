@@ -766,6 +766,17 @@ config PANEL_BOOT_MESSAGE
 	  An empty message will only clear the display at driver init time. Any other
 	  printf()-formatted message is valid with newline and escape codes.
 
+config SPRD_VSP
+	bool "Spreadtrum VSP video codec device"
+	depends on ARCH_SPRD && OF && COMMON_CLK
+	help
+	  Provides /dev/sprd_vsp for the hardware video decoders and
+	  encoders of the Spreadtrum Android userspace (OMX components) on
+	  SC7730SE-class SoCs: register mapping, codec clock and frequency
+	  levels, engine locking and the frame interrupt, with the ioctl ABI
+	  of the vendor 3.10 kernel.  Codec buffers come from the contiguous
+	  ION MM heap.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
