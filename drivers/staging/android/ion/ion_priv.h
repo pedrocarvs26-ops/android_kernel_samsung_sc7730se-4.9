@@ -54,6 +54,8 @@
  *			handle, used for debugging
  * @pid:		pid of last client to reference this buffer in a
  *			handle, used for debugging
+ * @mm_iova:		Sprd MM IOMMU address if mm_map_cnt is not zero
+ * @mm_map_cnt:		number of Sprd MM IOMMU mappings of the buffer
 */
 struct ion_buffer {
 	struct kref ref;
@@ -78,6 +80,10 @@ struct ion_buffer {
 	int handle_count;
 	char task_comm[TASK_COMM_LEN];
 	pid_t pid;
+#ifdef CONFIG_ION_SPRD
+	unsigned long mm_iova;
+	int mm_map_cnt;
+#endif
 };
 void ion_buffer_destroy(struct ion_buffer *buffer);
 
@@ -459,6 +465,8 @@ int ion_sync_for_device(struct ion_client *client, int fd);
 #ifdef CONFIG_ION_SPRD
 int ion_invalidate_for_cpu(struct ion_client *client, int fd);
 int ion_sprd_buffer_phys(int fd, phys_addr_t *phys, size_t *size);
+int ion_sprd_mm_map(int fd, unsigned long *iova, size_t *size);
+int ion_sprd_mm_unmap(int fd);
 #endif
 
 struct ion_handle *ion_handle_get_by_id_nolock(struct ion_client *client,

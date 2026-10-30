@@ -14,15 +14,17 @@
  * every gralloc buffer came from contiguous kmalloc memory and anything big
  * (the 1920x1920 wallpaper, 14 MiB) failed with -ENOMEM.  The Mali-400 has
  * its own MMU and no DISPC overlay or GSP is driven yet, so ids 1 and 3 are
- * backed by the page-pool system heap.  The VSP and JPEG codecs have no
- * IOMMU: id 2 takes physically contiguous buffers from the CMA pool named by
- * the ion node's memory-region, or system pages if there is none.
+ * backed by the page-pool system heap.  id 2 takes physically contiguous
+ * buffers from the CMA pool named by the ion node's memory-region, or system
+ * pages if there is none, for the VSP and JPEG codecs when they work without
+ * the MM IOMMU.
  *
  * Vendor ION_IOC_CUSTOM commands:
  *   PHYS   - answered only for buffers that are a single physical chunk
  *   MSYNC  - whole-buffer clean + invalidate (3.10 flushed the range)
+ *   MM_MAP/MM_UNMAP - counted MM IOMMU mappings (CONFIG_SPRD_IOMMU)
  *   FENCE  - primary/virtual HWC software timelines exported as sync_files
- *   others - -ENOTTY (no GSP/MM IOMMU yet)
+ *   others - -ENOTTY (no GSP IOMMU)
  */
 
 #define pr_fmt(fmt) "sprd-ion: " fmt
@@ -74,6 +76,12 @@ struct ion_msync_data {
 	void __user *vaddr;
 	void __user *paddr;
 	size_t size;
+};
+
+struct ion_mmu_data {
+	int fd_buffer;
+	unsigned long iova_addr;
+	size_t iova_size;
 };
 
 struct ion_fence_data {
@@ -453,6 +461,38 @@ static long sprd_ion_custom_ioctl(struct ion_client *client, unsigned int cmd,
 		if (ret)
 			return ret;
 		return ion_invalidate_for_cpu(client, data.fd_buffer);
+	}
+	case ION_SPRD_CUSTOM_MM_MAP: {
+		struct ion_mmu_data data;
+		int ret;
+
+		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
+			return -EFAULT;
+		ret = ion_sprd_mm_map(data.fd_buffer, &data.iova_addr,
+				      &data.iova_size);
+		if (ret)
+			return ret;
+		if (copy_to_user((void __user *)arg, &data, sizeof(data))) {
+			ion_sprd_mm_unmap(data.fd_buffer);
+			return -EFAULT;
+		}
+		return 0;
+	}
+	case ION_SPRD_CUSTOM_MM_UNMAP: {
+		struct ion_mmu_data data;
+		int ret;
+
+		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
+			return -EFAULT;
+		ret = ion_sprd_mm_unmap(data.fd_buffer);
+		if (ret)
+			return ret;
+		/* as on 3.10, the caller's copy of the mapping is cleared */
+		data.iova_addr = 0;
+		data.iova_size = 0;
+		if (copy_to_user((void __user *)arg, &data, sizeof(data)))
+			return -EFAULT;
+		return 0;
 	}
 	case ION_SPRD_CUSTOM_FENCE_CREATE:
 		return sprd_ion_fence_create(arg);

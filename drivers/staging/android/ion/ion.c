@@ -32,6 +32,7 @@
 #include <linux/rbtree.h>
 #include <linux/slab.h>
 #include <linux/seq_file.h>
+#include <linux/sprd_iommu.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/debugfs.h>
@@ -193,6 +194,11 @@ err2:
 
 void ion_buffer_destroy(struct ion_buffer *buffer)
 {
+#ifdef CONFIG_ION_SPRD
+	/* left mapped by a client that went away */
+	if (buffer->mm_map_cnt)
+		sprd_iommu_mm_unmap(buffer->mm_iova, buffer->size);
+#endif
 	if (buffer->kmap_cnt > 0) {
 		pr_warn_once("%s: buffer still mapped in the kernel\n",
 			     __func__);
@@ -1248,6 +1254,53 @@ int ion_sprd_buffer_phys(int fd, phys_addr_t *phys, size_t *size)
 	}
 	dma_buf_put(dmabuf);
 	return ret;
+}
+
+/*
+ * MM IOMMU address of a buffer for the VSP/JPEG/DCAM, counted per buffer as
+ * on 3.10: the first map allocates it, the last unmap or the destruction of
+ * the buffer releases it.
+ */
+int ion_sprd_mm_map(int fd, unsigned long *iova, size_t *size)
+{
+	struct dma_buf *dmabuf;
+	struct ion_buffer *buffer = ion_sprd_get_buffer(fd, &dmabuf);
+	int ret = 0;
+
+	if (IS_ERR(buffer))
+		return PTR_ERR(buffer);
+	mutex_lock(&buffer->lock);
+	if (!buffer->mm_map_cnt) {
+		/* no dirty line may land on top of what the codec writes */
+		dma_sync_sg_for_device(NULL, buffer->sg_table->sgl,
+				       buffer->sg_table->nents,
+				       DMA_BIDIRECTIONAL);
+		ret = sprd_iommu_mm_map(buffer->sg_table, buffer->size,
+					&buffer->mm_iova);
+	}
+	if (!ret) {
+		buffer->mm_map_cnt++;
+		*iova = buffer->mm_iova;
+		*size = buffer->size;
+	}
+	mutex_unlock(&buffer->lock);
+	dma_buf_put(dmabuf);
+	return ret;
+}
+
+int ion_sprd_mm_unmap(int fd)
+{
+	struct dma_buf *dmabuf;
+	struct ion_buffer *buffer = ion_sprd_get_buffer(fd, &dmabuf);
+
+	if (IS_ERR(buffer))
+		return PTR_ERR(buffer);
+	mutex_lock(&buffer->lock);
+	if (buffer->mm_map_cnt && !--buffer->mm_map_cnt)
+		sprd_iommu_mm_unmap(buffer->mm_iova, buffer->size);
+	mutex_unlock(&buffer->lock);
+	dma_buf_put(dmabuf);
+	return 0;
 }
 #endif
 
