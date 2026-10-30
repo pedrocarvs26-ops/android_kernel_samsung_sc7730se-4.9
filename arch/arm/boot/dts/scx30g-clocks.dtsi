@@ -316,6 +316,22 @@
 			clock-output-names = "clk_aon_apb";
 		};
 
+		clk_audif: clk_audif {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			reg = <0x402d002c 0x3 0x402e0000 0x20000>;	/* select reg and enable reg */
+			clocks = <&ext_26m>, <&clk_38m4>, <&clk_51m2>;
+			clock-output-names = "clk_audif";
+		};
+
+		clk_vbc: clk_vbc {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402e0000 0x80000>;	/* enable reg */
+			clocks = <&ext_26m>;
+			clock-output-names = "clk_vbc";
+		};
+
 		clk_adi: clk_adi {
 			compatible = "sprd,muxed-clock";
 			#clock-cells = <0>;

@@ -584,4 +584,52 @@
 		runtime = <1>;
 		status = "okay";
 	};
+
+	dmac: dma@20100000 {
+		compatible = "sprd,sc8830-dma", "sprd,sprd-dma";
+		reg = <0x20100000 0x4000>;
+		interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	sprd-audio-devices {
+		compatible = "sprd,sound", "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		sprd_codec: sprd-codec {
+			compatible = "sprd,sprd-codec";
+			status = "okay";
+			sprd,def_da_fs = <44100>;
+			sprd,audio_power_ver = <4>;
+			interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		vbc_r2p0: vbc-r2p0 {
+			compatible = "sprd,vbc-r2p0";
+			clocks = <&clk_vbc>;
+			clock-names = "clk_vbc";
+			status = "okay";
+		};
+
+		vaudio: vaudio {
+			compatible = "sprd,vaudio";
+			status = "okay";
+		};
+
+		sprd_pcm: sprd-pcm-audio {
+			compatible = "sprd,sprd-pcm";
+			status = "okay";
+		};
+
+		vbc_sound0: sound@0 {
+			compatible = "sprd,vbc-r2p0-sprd-codec";
+			sprd,model = "sprdphone";
+			sprd,vaudio = <&vaudio>;
+			sprd,vbc = <&vbc_r2p0>;
+			sprd,codec = <&sprd_codec>;
+			sprd,pcm = <&sprd_pcm>;
+			status = "okay";
+		};
+	};
 };
