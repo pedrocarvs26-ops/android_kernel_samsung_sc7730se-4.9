@@ -1,0 +1,69 @@
+menuconfig SND_SOC_SPRD
+	bool "Spreadtrum SC8830-family audio"
+	depends on ARCH_SPRD && OF
+	depends on SND_SOC=y
+	help
+	  ASoC support for the voice band codec (VBC r2p0) DAI and the
+	  sprd-codec v4 audio codec in the SC2723 PMIC, as found on the
+	  Spreadtrum SC7730SE.
+
+if SND_SOC_SPRD
+
+config SND_SOC_SPRD_VBC_R2P0_SPRD_CODEC_V4
+	bool "VBC r2p0 with sprd-codec v4"
+	select SND_SOC_SPRD_AUDIO_DMA
+	select SND_SOC_SPRD_VBC_R2P0
+	select SND_SOC_SPRD_VAUDIO
+	select SND_SOC_SPRD_CODEC_V4
+	help
+	  The "sprdphone" sound card: VBC playback and capture through
+	  the internal codec, plus the virtual DAIs the modem uses.
+
+config SND_SOC_SPRD_AUDIO_DEBUG
+	bool "Verbose debug messages"
+
+config SND_SOC_SPRD_AUDIO_DMA
+	bool
+
+config SND_SOC_SPRD_VBC_R2P0
+	bool
+
+config SND_SOC_SPRD_VAUDIO
+	bool
+
+config SND_SOC_SPRD_CODEC_V4
+	bool
+
+config SND_SOC_SPRD_VBC_SRC_OPEN
+	bool "Open the VBC ADC/ADC23 sample rate converters"
+	depends on SND_SOC_SPRD_VBC_R2P0
+
+config SND_SOC_VBC_SRC_SAMPLE_RATE
+	int "VBC SRC source rate (Hz)"
+	depends on SND_SOC_SPRD_VBC_R2P0
+	range 32000 48000
+	default 32000
+
+config SND_SOC_SPRD_VBC_LR_INVERT
+	bool "Swap the VBC left and right channels"
+	depends on SND_SOC_SPRD_VBC_R2P0
+
+config SND_SOC_SPRD_AUDIO_USE_INTER_HP_PA_V4
+	bool "Use the internal headphone PA"
+	depends on SND_SOC_SPRD_CODEC_V4
+
+config SND_SOC_SPRD_CODEC_EAR_WITH_IN_SPK
+	bool "Earpiece shares the speaker"
+	depends on SND_SOC_SPRD_CODEC_V4
+
+config SND_SOC_SPRD_CODEC_NO_HP_POP
+	bool "No headphone pop suppression"
+	depends on SND_SOC_SPRD_CODEC_V4
+
+config SND_SOC_SPRD_HP_POP_DELAY_TIME
+	int "Headphone switch delay (ms)"
+	depends on SND_SOC_SPRD_CODEC_NO_HP_POP
+	range 0 1000
+	default 350
+
+endif
