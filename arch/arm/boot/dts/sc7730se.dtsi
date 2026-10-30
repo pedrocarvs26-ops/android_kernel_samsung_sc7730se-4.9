@@ -289,6 +289,33 @@
 	};
 
 	/*
+	 * Video (VSP) and JPEG codecs in the MM power domain, driven from
+	 * userspace (OMX, camera HAL) through /dev/sprd_vsp and /dev/sprd_jpg.
+	 * "levelN" is the codec clock input that frequency level N of the
+	 * vendor ioctl ABI selects: mux order for the VSP, fastest first for
+	 * the JPEG codec, as in the 3.10 drivers.
+	 */
+	vsp: vsp@60900000 {
+		compatible = "sprd,scx30g-vsp";
+		reg = <0x60900000 0xc000>;
+		interrupts = <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_mm>, <&clk_vsp>, <&clk_76m8>, <&clk_128m>,
+			 <&clk_192m>, <&clk_256m>;
+		clock-names = "clk_mm_i", "clk_vsp", "level0", "level1",
+			      "level2", "level3";
+	};
+
+	jpg: jpg@60b00000 {
+		compatible = "sprd,scx30g-jpg";
+		reg = <0x60b00000 0x8000>;
+		interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_mm>, <&clk_jpg>, <&clk_256m>, <&clk_192m>,
+			 <&clk_128m>, <&clk_76m8>;
+		clock-names = "clk_mm_i", "clk_jpg", "level0", "level1",
+			      "level2", "level3";
+	};
+
+	/*
 	 * Zinitix ZT7554 3.3V LDO regulator (GPIO 156 active-high)
 	 */
 	tsp_ldo: fixedregulator@0 {
