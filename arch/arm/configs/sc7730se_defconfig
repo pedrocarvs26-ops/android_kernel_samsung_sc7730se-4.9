@@ -387,3 +387,8 @@ CONFIG_LEDS_SC2723_VIBRATOR=y
 CONFIG_CMA=y
 CONFIG_DMA_CMA=y
 CONFIG_CMA_SIZE_MBYTES=0
+
+# Multimedia: VSP video and JPEG codec devices for the vendor OMX
+# components and camera HAL, using buffers from ION heap 2.
+CONFIG_SPRD_VSP=y
+CONFIG_SPRD_JPG=y
