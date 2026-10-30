@@ -793,6 +793,7 @@ static SIMPLE_DEV_PM_OPS(sprd_pm_ops, sprd_suspend, sprd_resume);
 
 static const struct of_device_id serial_ids[] = {
 	{.compatible = "sprd,sc9836-uart",},
+	{.compatible = "sprd,sc8830-uart",},
 	{}
 };
 MODULE_DEVICE_TABLE(of, serial_ids);

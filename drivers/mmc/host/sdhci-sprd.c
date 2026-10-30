@@ -281,13 +281,12 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 	of_property_read_u32(np, "read-pos-delay", &sprd_host->read_pos_delay);
 	of_property_read_u32(np, "read-neg-delay", &sprd_host->read_neg_delay);
 
-	if (sprd_host->id == 0)
+	if (sprd_host->id == 0 || sprd_host->id == 1)
 		host->quirks2 |= SDHCI_QUIRK2_NO_1_8_V;
 	if (sprd_host->id == 1) {
 		host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 		host->mmc->pm_caps |= MMC_PM_KEEP_POWER;
 		host->mmc->pm_flags |= MMC_PM_KEEP_POWER;
-		host->mmc->caps |= MMC_CAP_POWER_OFF_CARD;
 	}
 
 	/* Enable AHB gate and pulse controller soft reset */

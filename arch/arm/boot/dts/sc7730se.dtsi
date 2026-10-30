@@ -580,6 +580,7 @@
 		write-delay = <0x03>;
 		read-pos-delay = <0x05>;
 		read-neg-delay = <0x05>;
+		non-removable;
 		keep-power = <1>;
 		runtime = <1>;
 		status = "okay";

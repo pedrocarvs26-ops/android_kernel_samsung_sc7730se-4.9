@@ -7871,6 +7871,9 @@ static void wl_free_wdev(struct bcm_cfg80211 *cfg)
 	wl_cfgvendor_detach(wdev->wiphy);
 #endif /* WL_VENDOR_EXT_SUPPORT */
 
+#ifdef CONFIG_PM
+	wdev->wiphy->wowlan_config = NULL;
+#endif
 	wiphy_unregister(wdev->wiphy);
 	wdev->wiphy->dev.parent = NULL;
 
