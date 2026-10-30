@@ -609,5 +609,14 @@
 			clock-output-names = "clk_jpg";
 			sprd,mm-domain;
 		};
+
+		clk_mmu: clk_mmu {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			/* MM IOMMU AHB enable */
+			reg = <0x60d00000 0x80>;
+			clock-output-names = "clk_mmu";
+			sprd,mm-domain;
+		};
 	};
 };
