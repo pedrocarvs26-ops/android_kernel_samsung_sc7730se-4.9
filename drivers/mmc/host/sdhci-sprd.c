@@ -33,6 +33,10 @@
 #include <soc/sprd/iomap.h>
 #include "sdhci-pltfm.h"
 
+void __weak wlan_set_mmchost(struct mmc_host *mmc)
+{
+}
+
 #define SPRD_SDHCI_WRITE_DELAY		0x0080
 #define SPRD_SDHCI_READ_POS_DELAY	0x0084
 #define SPRD_SDHCI_READ_NEG_DELAY	0x0088
@@ -279,6 +283,12 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 
 	if (sprd_host->id == 0)
 		host->quirks2 |= SDHCI_QUIRK2_NO_1_8_V;
+	if (sprd_host->id == 1) {
+		host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
+		host->mmc->pm_caps |= MMC_PM_KEEP_POWER;
+		host->mmc->pm_flags |= MMC_PM_KEEP_POWER;
+		host->mmc->caps |= MMC_CAP_POWER_OFF_CARD;
+	}
 
 	/* Enable AHB gate and pulse controller soft reset */
 	if (sprd_host->enb_bit)
@@ -363,6 +373,12 @@ static int sprd_sdhci_probe(struct platform_device *pdev)
 	ret = sdhci_add_host(host);
 	if (ret)
 		goto err_pltfm;
+
+	if (sprd_host->id == 1) {
+		wlan_set_mmchost(host->mmc);
+		dev_info(&pdev->dev, "%s: Set wifi mmc controller\n",
+			 mmc_hostname(host->mmc));
+	}
 
 	flush_delayed_work(&host->mmc->detect);
 

@@ -340,6 +340,22 @@
 			clock-output-names = "clk_adi";
 		};
 
+		clk_aux0: clk_aux0 {
+			compatible = "sprd,composite-dev-clock";
+			#clock-cells = <0>;
+			reg = <0x402e3020 0x7 0x402e3020 0xf0000 0x402e0004 0x4>;	/* select reg and divider reg and enable reg */
+			clocks = <&ext_32k>, <&ext_26m>, <&ext_26m>, <&clk_48m>, <&clk_52m>, <&clk_51m2_w>, <&clk_37m5>, <&clk_40m_wf1>;
+			clock-output-names = "clk_aux0";
+		};
+
+		clk_aux1: clk_aux1 {
+			compatible = "sprd,composite-dev-clock";
+			#clock-cells = <0>;
+			reg = <0x402e3020 0x70 0x402e3020 0xf00000 0x402e0004 0x8>;	/* select reg and divider reg and enable reg */
+			clocks = <&ext_32k>, <&ext_26m>, <&ext_26m>, <&clk_48m>, <&clk_52m>, <&clk_51m2_w>, <&clk_37m5>, <&clk_40m_wf1>;
+			clock-output-names = "clk_aux1";
+		};
+
 		clk_pwm0: clk_pwm0 {
 			compatible = "sprd,muxed-clock";
 			#clock-cells = <0>;

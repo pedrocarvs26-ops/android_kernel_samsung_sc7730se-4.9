@@ -29,6 +29,7 @@
 #include <linux/slab.h>
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
+#include <linux/broadcom/bcm-bt-lpm.h>
 
 /* device name */
 #define UART_NR_MAX		8
@@ -511,6 +512,9 @@ static struct uart_ops serial_sprd_ops = {
 	.startup = sprd_startup,
 	.shutdown = sprd_shutdown,
 	.set_termios = sprd_set_termios,
+#if IS_ENABLED(CONFIG_BCM_BT_LPM)
+	.ioctl = bcm_bt_lpm_uart_ioctl,
+#endif
 	.type = sprd_type,
 	.release_port = sprd_release_port,
 	.request_port = sprd_request_port,
@@ -715,9 +719,18 @@ static int sprd_probe(struct platform_device *pdev)
 	up->ops = &serial_sprd_ops;
 	up->flags = UPF_BOOT_AUTOCONF;
 
-	clk = devm_clk_get(&pdev->dev, NULL);
-	if (!IS_ERR_OR_NULL(clk))
+	clk = of_clk_get(pdev->dev.of_node, 0);
+	if (IS_ERR(clk))
+		clk = devm_clk_get(&pdev->dev, NULL);
+	if (!IS_ERR_OR_NULL(clk)) {
+		struct clk *clk_parent = of_clk_get(pdev->dev.of_node, 1);
+		if (!IS_ERR_OR_NULL(clk_parent)) {
+			clk_set_parent(clk, clk_parent);
+			clk_put(clk_parent);
+		}
+		clk_prepare_enable(clk);
 		up->uartclk = clk_get_rate(clk);
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {

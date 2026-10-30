@@ -2643,6 +2643,18 @@ int mmc_hw_reset(struct mmc_host *host)
 }
 EXPORT_SYMBOL(mmc_hw_reset);
 
+void mmc_ctrl_power(struct mmc_host *host, bool onoff)
+{
+	mmc_claim_host(host);
+	if (onoff)
+		mmc_power_up(host, host->ocr_avail);
+	else
+		mmc_power_off(host);
+	mmc_delay(1);
+	mmc_release_host(host);
+}
+EXPORT_SYMBOL(mmc_ctrl_power);
+
 static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 {
 	host->f_init = freq;

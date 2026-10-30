@@ -796,6 +796,20 @@ config SPRD_IOMMU
 	  /dev/sprd_iommu_mm, whose presence tells the Spreadtrum Android
 	  userspace to use it.  The OMX video codecs need it on Android 11.
 
+config BCM_BT_RFKILL
+	tristate "Broadcom Bluetooth RFKILL power control driver"
+	depends on RFKILL && GPIOLIB
+	help
+	  Enables RFKILL GPIO power control and 32kHz LPO clock setup for
+	  Broadcom Bluetooth chips (BCM43430 on Samsung SM-T560/SM-T561).
+
+config BCM_BT_LPM
+	tristate "Broadcom Bluetooth Low Power Mode driver"
+	depends on GPIOLIB && SERIAL_CORE
+	help
+	  Enables BT_WAKE and BT_HOST_WAKE low-power handshaking over N_BRCM_HCI
+	  and UART ioctls for Broadcom Bluetooth chips.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"

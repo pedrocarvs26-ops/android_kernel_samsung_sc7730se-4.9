@@ -218,12 +218,13 @@
 
 	/*
 	 * Spreadtrum UARTs (0x70000000..0x70300000)
+	 * uart0 is the Bluetooth HCI UART running at 48 MHz (3 Mbps baud).
 	 */
 	uart0: serial@70000000 {
 		compatible = "sprd,sc8830-uart";
 		reg = <0x70000000 0x100>;
 		interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ext_26m>;
+		clocks = <&clk_uart0>, <&clk_48m>;
 		status = "okay";
 	};
 
@@ -231,7 +232,7 @@
 		compatible = "sprd,sc8830-uart";
 		reg = <0x70100000 0x100>;
 		interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ext_26m>;
+		clocks = <&clk_uart1>, <&ext_26m>;
 		status = "okay";
 	};
 
@@ -579,10 +580,20 @@
 		write-delay = <0x03>;
 		read-pos-delay = <0x05>;
 		read-neg-delay = <0x05>;
-		non-removable;
 		keep-power = <1>;
 		runtime = <1>;
 		status = "okay";
+	};
+
+	bcm-bt-rfkill {
+		compatible = "bcm,bcm-bt-rfkill";
+		gpios = <&d_gpio 47 0>;
+	};
+
+	bcm-bt-lpm {
+		compatible = "bcm,bcm-bt-lpm";
+		gpios = <&d_gpio 45 0
+			 &d_gpio 46 0>;
 	};
 
 	dmac: dma@20100000 {
