@@ -316,6 +316,19 @@
 	};
 
 	/*
+	 * IOMMU of the MM masters: page table SRAM (one entry per 4 KiB of
+	 * the window) and control register, as on 3.10.
+	 */
+	mm_iommu: iommu@60f00000 {
+		compatible = "sprd,scx30g-mm-iommu";
+		reg = <0x60f00000 0x20000>, <0x60f20000 0x4>;
+		reg-names = "pgt", "ctrl";
+		sprd,iova-base = <0x20000000>;
+		clocks = <&clk_mm>, <&clk_mmu>;
+		clock-names = "clk_mm_i", "clk_mmu";
+	};
+
+	/*
 	 * Zinitix ZT7554 3.3V LDO regulator (GPIO 156 active-high)
 	 */
 	tsp_ldo: fixedregulator@0 {
