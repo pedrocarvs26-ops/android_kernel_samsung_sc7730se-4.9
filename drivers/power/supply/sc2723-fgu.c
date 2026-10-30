@@ -17,8 +17,10 @@
  *    charge behind an 1800 mA input limit with AICL, anything else runs in
  *    USB5 (500 mA) mode; 4320 mV float, lowered to 4180 mV below 10 or
  *    above 45 degC (vendor battery swelling protection), charging stopped
- *    below -5 or above 58 degC. Unlike the vendor code, end of charge and
- *    recharge are left to the charger's own termination/auto-recharge.
+ *    below -5 or above 58 degC. Unlike the vendor code, the charger is not
+ *    turned off at the end of charge: its own termination and auto-recharge
+ *    stay enabled, and as its termination current includes the system load
+ *    the end of charge is also taken from the gauge (fgu_smb358_status()).
  */
 
 #include <linux/delay.h>
@@ -142,6 +144,11 @@
 #define SMB358_CMD_B_USB5		0x02	/* 500 mA input limit */
 #define SMB358_STAT_E_AICL_DONE		BIT(4)
 #define SMB358_STAT_E_AICL_MASK		0x0f
+#define SMB358_STAT_C_EN		BIT(0)	/* charging enabled */
+#define SMB358_STAT_C_CHG_MASK		0x06	/* pre, fast, taper */
+#define SMB358_STAT_C_TAPER		0x06
+#define SMB358_STAT_C_TERM		BIT(5)	/* a charge cycle terminated */
+#define SMB358_INT_C_TERM		0x03	/* termination current hit */
 
 /* values the vendor driver writes on attach */
 #define SMB358_CUR_DCP			0xff	/* 2000 mA fast, 200 mA term */
@@ -219,6 +226,12 @@
 #define FGU_CFG_MAX_FAILS		3
 #define FGU_CHG_CHECK_EVERY		3	/* polls */
 
+/* end of charge from the gauge, see fgu_smb358_status() */
+#define FGU_FULL_MA			200	/* vendor first full check */
+#define FGU_FULL_MARGIN_MV		50	/* below the float voltage */
+#define FGU_FULL_EXIT_MV		70
+#define FGU_FULL_S			60
+
 #define FGU_DCP_INPUT_UA		1800000
 #define FGU_USB_INPUT_UA		500000
 #define FGU_VBUS_UV			5000000
@@ -282,6 +295,8 @@ struct sc2723_fgu {
 	bool aicl_pending;
 	bool chg_block;		/* charging stopped, battery too hot/cold */
 	bool swelling;		/* float voltage lowered */
+	bool sw_full;		/* end of charge seen by the gauge */
+	long taper_s;		/* taper at low current since, or 0 */
 
 	/* board data */
 	int cnom;		/* mAh */
@@ -974,23 +989,83 @@ static int fgu_muic_detect(struct sc2723_fgu *f)
 	return cable;
 }
 
+/*
+ * The SMB358 ends a charge cycle on its output current, which includes the
+ * system load. With the tablet kept awake while charging (see
+ * fgu_cable_start()) that may never drop below the 200 mA termination
+ * current, leaving the battery at the float voltage, "charging", for hours.
+ * So, like the vendor code (200 mA first full check), the end of charge is
+ * also taken from the gauge: taper phase at the float voltage with less
+ * than FGU_FULL_MA going into the battery for FGU_FULL_S. The charger keeps
+ * floating the battery; "full" lasts until the cable is removed or the
+ * battery is drawn down below the float voltage.
+ *
+ * With the float voltage lowered or charging stopped for temperature, the
+ * end of charge does not mean a full battery: report "not charging" then,
+ * which also keeps fgu_soc() from re-anchoring the gauge at 100%.
+ */
+static int fgu_smb358_status(struct sc2723_fgu *f, int c, int ic)
+{
+	bool limited = f->swelling || f->chg_block;
+	bool done = (c & SMB358_STAT_C_TERM) || (ic & SMB358_INT_C_TERM);
+	bool charging = (c & SMB358_STAT_C_EN) && (c & SMB358_STAT_C_CHG_MASK);
+	int float_mv = smb358_float_mv(smb358_want_float(f));
+	long now = fgu_now_s();
+	bool end;
+
+	if (f->sw_full &&
+	    (limited || f->vbat_mv < float_mv - FGU_FULL_EXIT_MV)) {
+		f->sw_full = false;
+		dev_info(f->dev, "charger: not full anymore, vbat %dmV temp %d\n",
+			 f->vbat_mv, f->temp);
+	}
+
+	if (charging &&
+	    (c & SMB358_STAT_C_CHG_MASK) == SMB358_STAT_C_TAPER &&
+	    f->vbat_mv >= float_mv - FGU_FULL_MARGIN_MV &&
+	    f->cur_avg_ma < FGU_FULL_MA) {
+		if (!f->taper_s)
+			f->taper_s = now;
+	} else {
+		f->taper_s = 0;
+	}
+	end = f->taper_s && now - f->taper_s >= FGU_FULL_S;
+
+	if (limited) {
+		if (done || end || !charging)
+			return POWER_SUPPLY_STATUS_NOT_CHARGING;
+		return POWER_SUPPLY_STATUS_CHARGING;
+	}
+
+	if (end && !f->sw_full) {
+		f->sw_full = true;
+		dev_info(f->dev, "charger: full, vbat %dmV avg %dmA for %lds, gauge was %d%% (shown %d%%)\n",
+			 f->vbat_mv, f->cur_avg_ma, now - f->taper_s,
+			 f->raw_cap, f->ui_cap);
+	}
+	if (done || f->sw_full)
+		return POWER_SUPPLY_STATUS_FULL;
+	if (charging)
+		return POWER_SUPPLY_STATUS_CHARGING;
+	return POWER_SUPPLY_STATUS_NOT_CHARGING;
+}
+
 static int fgu_charge_status(struct sc2723_fgu *f, int cur)
 {
 	int c, ic;
 
-	if (!f->online)
+	if (!f->online) {
+		f->sw_full = false;
+		f->taper_s = 0;
 		return POWER_SUPPLY_STATUS_DISCHARGING;
+	}
 
 	if (f->chg) {
 		c = i2c_smbus_read_byte_data(f->chg, SMB358_STATUS_C);
 		ic = i2c_smbus_read_byte_data(f->chg, SMB358_INT_STATUS_C);
 		if (c >= 0 && ic >= 0) {
 			f->chg_stat_c = c;
-			if ((c & 0x20) || (ic & 0x03))
-				return POWER_SUPPLY_STATUS_FULL;
-			if ((c & 0x01) && (c & 0x06))
-				return POWER_SUPPLY_STATUS_CHARGING;
-			return POWER_SUPPLY_STATUS_NOT_CHARGING;
+			return fgu_smb358_status(f, c, ic);
 		}
 		f->chg_stat_c = -1;
 		if (f->chg_errs++ < 5)
