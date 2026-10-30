@@ -51,6 +51,24 @@
 			reg = <0x9ea44000 0x00bb8000>;
 			no-map;
 		};
+
+		/*
+		 * ION heap 2 (video/camera): the VSP and JPEG codecs have no
+		 * IOMMU.  Movable pages use the pool while no codec does; it
+		 * stays in lowmem (below 0xb0000000) so it is linearly mapped.
+		 */
+		ion_mm: ion-mm {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x06000000>;
+			alignment = <0x00400000>;
+			alloc-ranges = <0x80000000 0x30000000>;
+		};
+	};
+
+	ion {
+		compatible = "sprd,sc8830-ion";
+		memory-region = <&ion_mm>;
 	};
 
 	chosen {

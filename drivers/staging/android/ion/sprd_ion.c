@@ -12,14 +12,15 @@
  *
  * The generic dummy ION driver has a physically contiguous heap at id 1, so
  * every gralloc buffer came from contiguous kmalloc memory and anything big
- * (the 1920x1920 wallpaper, 14 MiB) failed with -ENOMEM.  Nothing that needs
- * contiguous memory (DISPC overlays, GSP, VSP, ISP) is driven by this kernel
- * yet and the Mali-400 has its own MMU, so all three ids are backed by the
- * page-pool system heap for now.
+ * (the 1920x1920 wallpaper, 14 MiB) failed with -ENOMEM.  The Mali-400 has
+ * its own MMU and no DISPC overlay or GSP is driven yet, so ids 1 and 3 are
+ * backed by the page-pool system heap.  The VSP and JPEG codecs have no
+ * IOMMU: id 2 takes physically contiguous buffers from the CMA pool named by
+ * the ion node's memory-region, or system pages if there is none.
  *
  * Vendor ION_IOC_CUSTOM commands:
  *   PHYS   - answered only for buffers that are a single physical chunk
- *   MSYNC  - whole-buffer clean (a superset of the 3.10 range flush)
+ *   MSYNC  - whole-buffer clean + invalidate (3.10 flushed the range)
  *   FENCE  - primary/virtual HWC software timelines exported as sync_files
  *   others - -ENOTTY (no GSP/MM IOMMU yet)
  */
@@ -27,12 +28,18 @@
 #define pr_fmt(fmt) "sprd-ion: " fmt
 
 #include <linux/bitops.h>
+#include <linux/dma-contiguous.h>
+#include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/file.h>
 #include <linux/fs.h>
+#include <linux/highmem.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/mutex.h>
+#include <linux/of_reserved_mem.h>
+#include <linux/platform_device.h>
+#include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/sync_file.h>
 #include <linux/uaccess.h>
@@ -294,6 +301,105 @@ static long sprd_ion_fence_signal(unsigned long arg)
 	return 0;
 }
 
+/*
+ * Unlike the 4.9 ion_cma_heap this keeps the pages in the linear map and
+ * honours ION_FLAG_CACHED: gralloc allocates the video buffers that it
+ * also lets the CPU touch cached, and OMX syncs them with MSYNC.  The pool
+ * is "reusable", so movable pages live there while no codec needs it.
+ */
+struct sprd_ion_cma_heap {
+	struct ion_heap heap;
+	struct device *dev;
+};
+
+static struct device *sprd_ion_cma_dev(struct ion_heap *heap)
+{
+	return container_of(heap, struct sprd_ion_cma_heap, heap)->dev;
+}
+
+/* Write the zeroes back and drop the lines: user maps may be uncached. */
+static void sprd_ion_cma_flush(struct page *page, size_t size)
+{
+	struct scatterlist sg;
+
+	sg_init_table(&sg, 1);
+	sg_set_page(&sg, page, size, 0);
+	/* ION's own convention: DMA addresses are physical on this SoC. */
+	sg_dma_address(&sg) = page_to_phys(page);
+	dma_sync_sg_for_device(NULL, &sg, 1, DMA_TO_DEVICE);
+	dma_sync_sg_for_cpu(NULL, &sg, 1, DMA_FROM_DEVICE);
+}
+
+static int sprd_ion_cma_allocate(struct ion_heap *heap,
+				 struct ion_buffer *buffer, unsigned long len,
+				 unsigned long align, unsigned long flags)
+{
+	struct device *dev = sprd_ion_cma_dev(heap);
+	unsigned long i, count = PAGE_ALIGN(len) >> PAGE_SHIFT;
+	unsigned int order = align > PAGE_SIZE ? get_order(align) : 0;
+	struct sg_table *table;
+	struct page *page;
+	int ret = -ENOMEM;
+
+	page = dma_alloc_from_contiguous(dev, count, order);
+	if (!page)
+		return -ENOMEM;
+	for (i = 0; i < count; i++)
+		clear_highpage(nth_page(page, i));
+	sprd_ion_cma_flush(page, count << PAGE_SHIFT);
+
+	table = kmalloc(sizeof(*table), GFP_KERNEL);
+	if (!table)
+		goto err_release;
+	ret = sg_alloc_table(table, 1, GFP_KERNEL);
+	if (ret)
+		goto err_free;
+	sg_set_page(table->sgl, page, count << PAGE_SHIFT, 0);
+	buffer->sg_table = table;
+	return 0;
+
+err_free:
+	kfree(table);
+err_release:
+	dma_release_from_contiguous(dev, page, count);
+	return ret;
+}
+
+static void sprd_ion_cma_free(struct ion_buffer *buffer)
+{
+	struct sg_table *table = buffer->sg_table;
+
+	dma_release_from_contiguous(sprd_ion_cma_dev(buffer->heap),
+				    sg_page(table->sgl),
+				    table->sgl->length >> PAGE_SHIFT);
+	sg_free_table(table);
+	kfree(table);
+}
+
+static struct ion_heap_ops sprd_ion_cma_ops = {
+	.allocate	= sprd_ion_cma_allocate,
+	.free		= sprd_ion_cma_free,
+	.map_user	= ion_heap_map_user,
+	.map_kernel	= ion_heap_map_kernel,
+	.unmap_kernel	= ion_heap_unmap_kernel,
+};
+
+static struct ion_heap *sprd_ion_cma_heap_create(struct device *dev,
+						 struct ion_platform_heap *data)
+{
+	struct sprd_ion_cma_heap *cma_heap;
+
+	cma_heap = devm_kzalloc(dev, sizeof(*cma_heap), GFP_KERNEL);
+	if (!cma_heap)
+		return ERR_PTR(-ENOMEM);
+	cma_heap->dev = dev;
+	cma_heap->heap.ops = &sprd_ion_cma_ops;
+	cma_heap->heap.type = ION_HEAP_TYPE_DMA;
+	cma_heap->heap.id = data->id;
+	cma_heap->heap.name = data->name;
+	return &cma_heap->heap;
+}
+
 static struct ion_platform_heap sprd_ion_heaps[] = {
 	{
 		.id	= ION_HEAP_ID_SYSTEM,
@@ -338,10 +444,15 @@ static long sprd_ion_custom_ioctl(struct ion_client *client, unsigned int cmd,
 	}
 	case ION_SPRD_CUSTOM_MSYNC: {
 		struct ion_msync_data data;
+		int ret;
 
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;
-		return ion_sync_for_device(client, data.fd_buffer);
+		/* Callers use it both before and after the codec's access. */
+		ret = ion_sync_for_device(client, data.fd_buffer);
+		if (ret)
+			return ret;
+		return ion_invalidate_for_cpu(client, data.fd_buffer);
 	}
 	case ION_SPRD_CUSTOM_FENCE_CREATE:
 		return sprd_ion_fence_create(arg);
@@ -357,9 +468,11 @@ static long sprd_ion_custom_ioctl(struct ion_client *client, unsigned int cmd,
 	}
 }
 
-static int __init sprd_ion_init(void)
+static int sprd_ion_probe(struct platform_device *pdev)
 {
-	int i, nr = 0;
+	struct device *dev = &pdev->dev;
+	bool cma;
+	int i, ret, nr = 0;
 
 	/* Initialize before ion_device_create publishes /dev/ion. */
 	for (i = 0; i < ARRAY_SIZE(sprd_timelines); i++) {
@@ -371,24 +484,52 @@ static int __init sprd_ion_init(void)
 		timeline->context = fence_context_alloc(1);
 	}
 
+	ret = of_reserved_mem_device_init(dev);
+	if (ret && ret != -ENODEV)
+		dev_warn(dev, "memory-region unusable (%d)\n", ret);
+	cma = !ret && dev_get_cma_area(dev);
+
 	sprd_idev = ion_device_create(sprd_ion_custom_ioctl);
-	if (IS_ERR(sprd_idev))
+	if (IS_ERR(sprd_idev)) {
+		if (!ret)
+			of_reserved_mem_device_release(dev);
 		return PTR_ERR(sprd_idev);
+	}
 
 	for (i = 0; i < ARRAY_SIZE(sprd_ion_heaps); i++) {
-		struct ion_heap *heap = ion_heap_create(&sprd_ion_heaps[i]);
+		struct ion_platform_heap *data = &sprd_ion_heaps[i];
+		struct ion_heap *heap;
 
+		if (data->id == ION_HEAP_ID_MM && cma)
+			heap = sprd_ion_cma_heap_create(dev, data);
+		else
+			heap = ion_heap_create(data);
 		if (IS_ERR_OR_NULL(heap)) {
-			pr_err("%s: create failed (%ld)\n",
-			       sprd_ion_heaps[i].name, PTR_ERR(heap));
+			pr_err("%s: create failed (%ld)\n", data->name,
+			       PTR_ERR(heap));
 			continue;
 		}
 		ion_device_add_heap(sprd_idev, heap);
 		nr++;
 	}
-	pr_info("%d heaps: ids 1/2/3 (system/mm/overlay) backed by system pages\n",
-		nr);
+	pr_info("%d heaps: ids 1/3 (system/overlay) system pages, id 2 (mm) %s\n",
+		nr, cma ? "contiguous CMA" : "system pages");
 	pr_info("display sync timelines: primary/virtual (sync_file)\n");
 	return 0;
 }
-device_initcall(sprd_ion_init);
+
+static const struct of_device_id sprd_ion_of_match[] = {
+	{ .compatible = "sprd,sc8830-ion" },
+	{ }
+};
+
+static struct platform_driver sprd_ion_driver = {
+	.probe = sprd_ion_probe,
+	.driver = {
+		.name = "sprd-ion",
+		.of_match_table = sprd_ion_of_match,
+		.suppress_bind_attrs = true,
+	},
+};
+
+builtin_platform_driver(sprd_ion_driver);
