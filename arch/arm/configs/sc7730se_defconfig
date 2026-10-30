@@ -392,3 +392,4 @@ CONFIG_CMA_SIZE_MBYTES=0
 # components and camera HAL, using buffers from ION heap 2.
 CONFIG_SPRD_VSP=y
 CONFIG_SPRD_JPG=y
+CONFIG_SPRD_IOMMU=y
