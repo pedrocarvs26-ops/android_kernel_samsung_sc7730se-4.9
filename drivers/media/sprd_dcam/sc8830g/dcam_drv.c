@@ -574,7 +574,7 @@ int32_t dcam_module_en(struct device_node *dn)
 		 */
 		ret = dcam_set_clk(dn,DCAM_CLK_256M);
 #else
-		ret = dcam_set_clk(dn,DCAM_CLK_312M);
+		ret = dcam_set_clk(dn,DCAM_CLK_256M);
 #endif
 		if (ret) {
 			clk_mm_i_eb(dn,0);
@@ -735,20 +735,31 @@ int32_t dcam_reset(enum dcam_rst_mode reset_mode, uint32_t is_isr)
 int32_t dcam_set_clk(struct device_node *dn, enum dcam_clk_sel clk_sel)
 {
 	enum dcam_drv_rtn       rtn = DCAM_RTN_SUCCESS;
-	unsigned long           rate = 128000000;
+	struct clk              *clk_parent = NULL;
+	char                    *parent = "clk_256m";
+	unsigned long           rate = 256000000;
 	int                     ret = 0;
 
 	switch (clk_sel) {
 	case DCAM_CLK_312M:
-		rate = 312000000;
+		/*
+		 * On SC7730SE, clk_312m (from CPLL) may be inactive without CP modem.
+		 * clk_256m (from TDPLL) is the primary high-speed camera clock (256MHz)
+		 * matching vendor CONFIG_ARCH_SCX30G2.
+		 */
+		parent = "clk_256m";
+		rate = 256000000;
 		break;
 	case DCAM_CLK_256M:
+		parent = "clk_256m";
 		rate = 256000000;
 		break;
 	case DCAM_CLK_128M:
+		parent = "clk_128m";
 		rate = 128000000;
 		break;
 	case DCAM_CLK_76M8:
+		parent = "clk_76m8";
 		rate = 76800000;
 		break;
 	case DCAM_CLK_NONE:
@@ -760,7 +771,8 @@ int32_t dcam_set_clk(struct device_node *dn, enum dcam_clk_sel clk_sel)
 		}
 		return 0;
 	default:
-		rate = 128000000;
+		parent = "clk_256m";
+		rate = 256000000;
 		break;
 	}
 
@@ -776,12 +788,30 @@ int32_t dcam_set_clk(struct device_node *dn, enum dcam_clk_sel clk_sel)
 		clk_disable_unprepare(s_dcam_clk);
 	}
 
-	clk_set_rate(s_dcam_clk, rate);
+	if (parent) {
+		clk_parent = clk_get(NULL, parent);
+		if (!IS_ERR_OR_NULL(clk_parent)) {
+			ret = clk_set_parent(s_dcam_clk, clk_parent);
+			if (ret)
+				printk("DCAM: clk_set_parent to %s fail: %d\n", parent, ret);
+			else
+				printk("DCAM: clk_set_parent to %s ok\n", parent);
+			clk_put(clk_parent);
+		} else {
+			printk("DCAM: clk_get(%s) fail: %ld\n", parent, PTR_ERR(clk_parent));
+		}
+	}
+
+	ret = clk_set_rate(s_dcam_clk, rate);
+	if (ret)
+		printk("DCAM: clk_set_rate(%lu) returned %d\n", rate, ret);
+
 	ret = clk_prepare_enable(s_dcam_clk);
 	if (ret) {
 		printk("enable dcam clk error: %d\n", ret);
 		return -1;
 	}
+	printk("DCAM: clk_dcam enabled at %lu Hz\n", clk_get_rate(s_dcam_clk));
 	return rtn;
 }
 

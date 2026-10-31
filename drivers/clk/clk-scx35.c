@@ -532,6 +532,12 @@ static int sprd_mm_mux_set_parent(struct clk_hw *hw, u8 index)
 	return 0;
 }
 
+static unsigned long sprd_clk_mux_recalc_rate(struct clk_hw *hw,
+					      unsigned long parent_rate)
+{
+	return parent_rate;
+}
+
 static const struct clk_ops sprd_mm_domain_ops = {
 	.prepare	= sprd_mm_domain_prepare,
 	.unprepare	= sprd_mm_domain_unprepare,
@@ -554,6 +560,8 @@ static const struct clk_ops sprd_mm_mux_ops = {
 	.is_enabled	= sprd_mm_clk_is_enabled,
 	.get_parent	= sprd_mm_mux_get_parent,
 	.set_parent	= sprd_mm_mux_set_parent,
+	.determine_rate	= __clk_mux_determine_rate,
+	.recalc_rate	= sprd_clk_mux_recalc_rate,
 };
 
 static const struct clk_ops sprd_mm_clk_composite_ops = {
@@ -599,6 +607,8 @@ static const struct clk_ops sprd_clk_mux_ops = {
 	.is_enabled	= sprd_clk_is_enabled,
 	.get_parent	= sprd_clk_mux_get_parent,
 	.set_parent	= sprd_clk_mux_set_parent,
+	.determine_rate	= __clk_mux_determine_rate,
+	.recalc_rate	= sprd_clk_mux_recalc_rate,
 };
 
 static const struct clk_ops sprd_clk_divider_ops = {
