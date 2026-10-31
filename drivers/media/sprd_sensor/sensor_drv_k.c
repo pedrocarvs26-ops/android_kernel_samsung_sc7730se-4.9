@@ -289,10 +289,25 @@ typedef struct {
 } camera_pinmap_t;
 
 camera_pinmap_t camera_stby_rst_pinmap[] = {
-	{REG_PIN_CCIRRST, BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // Main Camera RST
-	{REG_PIN_CCIRPD1, BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // Front Camera STBY
-	{REG_PIN_CCIRPD0, BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // Main Camera STBY
-	{REG_PIN_TRACEDAT6, BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // Front Camera RST
+	{REG_PIN_CCIRCK0,   BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // CCIR Clock
+	{REG_PIN_CCIRMCLK,  BITS_PIN_DS(2)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // Master Clock
+	{REG_PIN_CCIRHS,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // HSYNC
+	{REG_PIN_CCIRVS,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // VSYNC
+	{REG_PIN_CCIRD0,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 0
+	{REG_PIN_CCIRD1,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 1
+	{REG_PIN_CCIRD2,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 2
+	{REG_PIN_CCIRD3,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 3
+	{REG_PIN_CCIRD4,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 4
+	{REG_PIN_CCIRD5,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 5
+	{REG_PIN_CCIRD6,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 6
+	{REG_PIN_CCIRD7,    BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_NUL|BIT_PIN_SLP_NUL|BIT_PIN_SLP_Z}, // DATA 7
+	{REG_PIN_CCIRRST,   BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_SLP_AP|BIT_PIN_SLP_OE}, // Main Camera RST (GPIO 186)
+	{REG_PIN_CCIRPD1,   BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_SLP_AP|BIT_PIN_SLP_WPU|BIT_PIN_SLP_OE}, // Front Camera STBY (GPIO 187)
+	{REG_PIN_CCIRPD0,   BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_SLP_AP|BIT_PIN_SLP_WPU|BIT_PIN_SLP_OE}, // Main Camera STBY (GPIO 188)
+	{REG_PIN_TRACEDAT6, BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_SLP_AP|BIT_PIN_SLP_WPU|BIT_PIN_SLP_OE}, // Front Camera RST (GPIO 238)
+	{REG_PIN_KEYOUT2,   BITS_PIN_DS(1)|BITS_PIN_AF(3)|BIT_PIN_SLP_AP|BIT_PIN_SLP_OE}, // Main Camera DVDD_EN (GPIO 193)
+	{REG_PIN_SCL0,      BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_WPU|BIT_PIN_SLP_AP|BIT_PIN_SLP_WPU|BIT_PIN_SLP_IE}, // I2C0 SCL
+	{REG_PIN_SDA0,      BITS_PIN_DS(1)|BITS_PIN_AF(0)|BIT_PIN_WPU|BIT_PIN_SLP_AP|BIT_PIN_SLP_WPU|BIT_PIN_SLP_IE}, // I2C0 SDA
 };
 
 LOCAL const SN_MCLK c_sensor_mclk_tab[SENSOR_MCLK_SRC_NUM] = {
@@ -404,7 +419,7 @@ LOCAL int sensor_probe(struct i2c_client *client, const struct i2c_device_id *id
 	if (!s_p_sensor_mod->cur_i2c_client || client->addr == 0x3c)
 		s_p_sensor_mod->cur_i2c_client = client;
 
-	SENSOR_PRINT_HIGH(KERN_INFO "sensor_probe : addr 0x%x\n", s_p_sensor_mod->cur_i2c_client->addr);
+	pr_info("sensor_probe : client '%s' addr 0x%x\n", client->name, client->addr);
 	return 0;
 out:
 	return res;
@@ -707,18 +722,21 @@ int sensor_k_set_voltage_dvdd(uint32_t dvdd_val)
 #endif
 
 #if defined(CONFIG_MACH_GTEL3G) || defined(CONFIG_MACH_GTELWIFI) || defined(CONFIG_MACH_YOUNG33G)
-	SENSOR_PRINT_HIGH("sensor_k_set_voltage_dvdd : sensor set DVDD gpio %d\n", s_p_sensor_mod->pin_main_camdvdd_en);
-	if (SENSOR_VDD_CLOSED == dvdd_val)
+	if (SENSOR_MAIN == _sensor_K_get_curId())
 	{
-		gpio_direction_output(s_p_sensor_mod->pin_main_camdvdd_en, 1);
-		gpio_set_value(s_p_sensor_mod->pin_main_camdvdd_en, 0);
+		SENSOR_PRINT_HIGH("sensor_k_set_voltage_dvdd : sensor set DVDD gpio %d\n", s_p_sensor_mod->pin_main_camdvdd_en);
+		if (SENSOR_VDD_CLOSED == dvdd_val)
+		{
+			gpio_direction_output(s_p_sensor_mod->pin_main_camdvdd_en, 1);
+			gpio_set_value(s_p_sensor_mod->pin_main_camdvdd_en, 0);
+		}
+		else
+		{
+			gpio_direction_output(s_p_sensor_mod->pin_main_camdvdd_en, 1);
+			gpio_set_value(s_p_sensor_mod->pin_main_camdvdd_en, 1);
+		}
+		return SENSOR_K_SUCCESS;
 	}
-	else
-	{
-		gpio_direction_output(s_p_sensor_mod->pin_main_camdvdd_en, 1);
-		gpio_set_value(s_p_sensor_mod->pin_main_camdvdd_en, 1);
-	}
-	return SENSOR_K_SUCCESS;
 #endif
 
 	if (!s_p_sensor_mod->camdvdd_regulator)
@@ -1101,6 +1119,15 @@ int sensor_k_sensor_sel(uint32_t sensor_id)
 {
 	int ret = 0;
 	SENSOR_CHECK_ZERO(s_p_sensor_mod);
+
+	if (s_p_sensor_mod->sensor_id != sensor_id) {
+		if (s_p_sensor_mod->camdvdd_regulator) {
+			_sensor_regulator_disable(&s_p_sensor_mod->dvddpower_on_count, s_p_sensor_mod->camdvdd_regulator);
+			regulator_put(s_p_sensor_mod->camdvdd_regulator);
+			s_p_sensor_mod->camdvdd_regulator = NULL;
+		}
+	}
+
 	s_p_sensor_mod->sensor_id = sensor_id;
 
 	if (sensor_id == SENSOR_MAIN && s_p_sensor_mod->main_i2c_client)
@@ -2266,7 +2293,8 @@ int sensor_k_probe(struct platform_device *pdev)
 
 #if defined (CONFIG_MACH_CORE3_W) || defined(CONFIG_MACH_J13G) || defined (CONFIG_MACH_GRANDNEOVE3G)\
     || defined(CONFIG_MACH_VIVALTO5MVE3G)|| defined(CONFIG_MACH_GOYAVE3G) || defined(CONFIG_MACH_GOYAVEWIFI)	\
-    || defined(CONFIG_MACH_GOYAVE3G_SEA) || defined(CONFIG_MACH_GOYAVEWIFI_SEA_XTC) || defined(CONFIG_MACH_YOUNG33G) || defined(CONFIG_MACH_VIVALTO3MVEML3G_SEA)
+    || defined(CONFIG_MACH_GOYAVE3G_SEA) || defined(CONFIG_MACH_GOYAVEWIFI_SEA_XTC) || defined(CONFIG_MACH_YOUNG33G) || defined(CONFIG_MACH_VIVALTO3MVEML3G_SEA) \
+    || defined(CONFIG_MACH_GTEL3G) || defined(CONFIG_MACH_GTELWIFI)
 
 	// Get sub RST GPIO
 	if(s_p_sensor_mod->pin_sub_reset >= 0)
@@ -2664,6 +2692,11 @@ int __init sensor_k_init(void)
 	int i = 0;
 	int err = 0;
 	int numberOfPin = sizeof(camera_stby_rst_pinmap)/sizeof(camera_pinmap_t);
+
+	for (i = 0; i < numberOfPin; i++) {
+		pinmap_set(camera_stby_rst_pinmap[i].reg, camera_stby_rst_pinmap[i].val);
+	}
+	pr_info("sensor_k_init : %d camera pins configured via pinmap\n", numberOfPin);
 
 	s_p_sensor_mod = (struct sensor_module *)vzalloc(sizeof(struct sensor_module));
 	SENSOR_CHECK_ZERO(s_p_sensor_mod);

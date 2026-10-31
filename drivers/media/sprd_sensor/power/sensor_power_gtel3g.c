@@ -44,7 +44,7 @@ static int sensor_s5k4ecgx_poweron(struct sensor_power *main_cfg, struct sensor_
 	sensor_k_set_pd_level(1);						//power down (5Mp STBY)
 	udelay(30);//delay > 15us
 	sensor_k_set_rst_level(1);						//reset (5Mp RESET)
-	udelay(100);//delay > 60us
+	msleep(20); //delay > 20ms for S5K4ECGX MCU boot and PLL stabilization
 	printk("sensor_s5k4ecgx_poweron OK \n");
 	return ret;
 }
@@ -98,8 +98,7 @@ static int sensor_sr200pc20m_poweron(struct sensor_power *main_cfg, struct senso
 	sensor_k_set_mclk(SENSOR_DEFALUT_MCLK);			// MCLK
 	mdelay(30);	// Delay >30ms
 	sensor_k_set_rst_level(1);						// Reset invalid for SR200PC20 (VT RESET)
-	udelay(2);	// Delay >2us (16MCLK = 16/24 us )
-
+	msleep(20);	// Delay >20ms for sensor stabilization
 	printk("sensor_sr200pc20m_poweron : OK\n");
 
 	return ret;

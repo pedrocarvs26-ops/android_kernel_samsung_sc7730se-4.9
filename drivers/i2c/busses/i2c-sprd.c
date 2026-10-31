@@ -69,6 +69,8 @@ struct sprd_i2c {
 
 static struct sprd_i2c *sprd_i2c_ctl_id[SPRD_I2C_CTL_ID];
 
+static void sprd_i2c_set_clk(struct sprd_i2c *pi2c, unsigned int freq);
+
 static void sprd_i2c_hw_clk_enable(struct sprd_i2c *pi2c, bool enable)
 {
 	int id = pi2c->adap.nr;
@@ -240,6 +242,16 @@ static int sprd_i2c_master_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg *ms
 	sprd_i2c_hw_clk_enable(pi2c, true);
 	for (im = 0; ret >= 0 && im < num; im++)
 		ret = sprd_i2c_handle_msg(i2c_adap, &msgs[im], im == num - 1);
+	if (ret < 0) {
+		/* Clean up bus after error so controller/bus does not hang */
+		__raw_writel(I2C_CMD_STOP, pi2c->membase + I2C_CMD);
+		udelay(10);
+		__raw_writel(I2C_RST_RST, pi2c->membase + I2C_RST);
+		udelay(10);
+		__raw_writel(0, pi2c->membase + I2C_RST);
+		udelay(10);
+		sprd_i2c_set_clk(pi2c, pi2c->bus_freq);
+	}
 	sprd_i2c_hw_clk_enable(pi2c, false);
 
 	return (ret >= 0) ? im : -EIO;
