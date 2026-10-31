@@ -1,0 +1,8 @@
+config VIDEO_GSP_SPRD
+	bool "Spreadtrum GSP 2D Compositor /dev/sprd_gsp"
+	depends on ARCH_SPRD
+	default y
+	help
+	  Graphic Scaling Processor (GSP) 2D hardware composer for Spreadtrum SoCs.
+	  Provides /dev/sprd_gsp used by Android Hardware Composer (HWC) for
+	  hardware layer scaling, rotation, color conversion, and alpha blending.

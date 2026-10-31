@@ -437,6 +437,14 @@
 			clock-output-names = "clk_gsp";
 		};
 
+		clk_gsp_emc: clk_gsp_emc {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402e0004 0x2000>;
+			clocks = <&clk_aon_apb>;
+			clock-output-names = "clk_gsp_emc";
+		};
+
 		clk_dispc0: clk_dispc0 {
 			compatible = "sprd,composite-dev-clock";
 			#clock-cells = <0>;

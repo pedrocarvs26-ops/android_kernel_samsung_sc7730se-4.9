@@ -45,51 +45,9 @@
 #include <linux/slab.h>
 #include <linux/sync_file.h>
 #include <linux/uaccess.h>
+#include <video/ion_sprd.h>
 #include "ion.h"
 #include "ion_priv.h"
-
-#define ION_HEAP_ID_SYSTEM	1
-#define ION_HEAP_ID_MM		2
-#define ION_HEAP_ID_OVERLAY	3
-
-/* ABI of the 3.10 vendor kernel, include/video/ion_sprd.h */
-enum ion_sprd_custom_cmd {
-	ION_SPRD_CUSTOM_PHYS,
-	ION_SPRD_CUSTOM_MSYNC,
-	ION_SPRD_CUSTOM_GSP_MAP,
-	ION_SPRD_CUSTOM_GSP_UNMAP,
-	ION_SPRD_CUSTOM_MM_MAP,
-	ION_SPRD_CUSTOM_MM_UNMAP,
-	ION_SPRD_CUSTOM_FENCE_CREATE,
-	ION_SPRD_CUSTOM_FENCE_SIGNAL,
-	ION_SPRD_CUSTOM_FENCE_DUP,
-};
-
-struct ion_phys_data {
-	int fd_buffer;
-	unsigned long phys;
-	size_t size;
-};
-
-struct ion_msync_data {
-	int fd_buffer;
-	void __user *vaddr;
-	void __user *paddr;
-	size_t size;
-};
-
-struct ion_mmu_data {
-	int fd_buffer;
-	unsigned long iova_addr;
-	size_t iova_size;
-};
-
-struct ion_fence_data {
-	__u32 device_type;
-	__s32 life_value;
-	__s32 release_fence_fd;
-	__s32 retired_fence_fd;
-};
 
 /* These timelines live for the lifetime of this built-in ION device. */
 struct sprd_fence_timeline {
@@ -462,6 +420,33 @@ static long sprd_ion_custom_ioctl(struct ion_client *client, unsigned int cmd,
 			return ret;
 		return ion_invalidate_for_cpu(client, data.fd_buffer);
 	}
+	case ION_SPRD_CUSTOM_GSP_MAP: {
+		struct ion_mmu_data data;
+		phys_addr_t phys;
+		size_t size;
+		int ret;
+
+		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
+			return -EFAULT;
+		ret = ion_sprd_buffer_phys(data.fd_buffer, &phys, &size);
+		if (ret)
+			return ret;
+		data.iova_addr = (unsigned long)phys;
+		data.iova_size = size;
+		if (copy_to_user((void __user *)arg, &data, sizeof(data)))
+			return -EFAULT;
+		return 0;
+	}
+	case ION_SPRD_CUSTOM_GSP_UNMAP: {
+		struct ion_mmu_data data;
+		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
+			return -EFAULT;
+		data.iova_addr = 0;
+		data.iova_size = 0;
+		if (copy_to_user((void __user *)arg, &data, sizeof(data)))
+			return -EFAULT;
+		return 0;
+	}
 	case ION_SPRD_CUSTOM_MM_MAP: {
 		struct ion_mmu_data data;
 		int ret;
@@ -573,3 +558,33 @@ static struct platform_driver sprd_ion_driver = {
 };
 
 builtin_platform_driver(sprd_ion_driver);
+
+int sprd_ion_get_gsp_addr(struct ion_addr_data *data)
+{
+	phys_addr_t phys = 0;
+	size_t size = 0;
+	int ret;
+
+	if (!data)
+		return -EINVAL;
+
+	ret = ion_sprd_buffer_phys(data->fd_buffer, &phys, &size);
+	if (ret) {
+		pr_err("sprd_ion_get_gsp_addr: failed to get phys for fd %d (ret=%d)\n",
+		       data->fd_buffer, ret);
+		return ret;
+	}
+
+	data->phys_addr = (unsigned long)phys;
+	data->size = size;
+	data->iova_enabled = false;
+	data->iova_addr = 0;
+	return 0;
+}
+EXPORT_SYMBOL(sprd_ion_get_gsp_addr);
+
+int sprd_ion_free_gsp_addr(int fd)
+{
+	return 0;
+}
+EXPORT_SYMBOL(sprd_ion_free_gsp_addr);

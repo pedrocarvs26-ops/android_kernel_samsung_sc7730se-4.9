@@ -256,6 +256,8 @@
 #define REGS_PMU_APB_BASE		SPRD_PMU_BASE
 #define REGS_AON_CLK_BASE		SPRD_AONCKG_BASE
 #define REGS_AP_CLK_BASE		SPRD_APBCKG_BASE
+#define REG_AP_CLK_AP_AHB_CFG		SCI_ADDR(REGS_AP_CLK_BASE, 0x0020)
+#define REG_AP_CLK_GSP_CFG		SCI_ADDR(REGS_AP_CLK_BASE, 0x0028)
 #define REGS_GPU_APB_BASE		SPRD_GPUCKG_BASE
 #define REGS_MM_AHB_BASE		SPRD_MMAHB_BASE
 #define REGS_MM_CLK_BASE		SPRD_MMCKG_BASE
@@ -284,6 +286,9 @@
 
 /* AP_AHB_EB bits */
 #define BIT_GSP_EB				BIT(3)
+#define BIT_GSP_SOFT_RST			BIT(3)
+#define BIT_GSP_AUTO_GATE_EN			BIT(8)
+#define BIT_GSP_CKG_FORCE_EN			BIT(9)
 #define BIT_DISPC0_EB				BIT(1)
 #define BIT_DMA_EB				BIT(5)
 #define BIT_SDIO0_EB				BIT(8)
@@ -423,6 +428,8 @@
 #define BIT_AP_WDG_EB				BIT(4)
 #define BIT_AP_TMR1_EB				BIT(9)
 #define BIT_AP_TMR2_EB				BIT(10)
+#define BIT_DISP_EMC_EB				BIT(11)
+#define BIT_GSP_EMC_EB				BIT(13)
 
 void sprd_intc_mask(u32 gic_hwirq);
 void sprd_intc_unmask(u32 gic_hwirq);
@@ -443,10 +450,12 @@ void sprd_intc_unmask(u32 gic_hwirq);
 #define REG_PMU_APB_PD_CA7_C1_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0008)
 #define REG_PMU_APB_PD_CA7_C2_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x000C)
 #define REG_PMU_APB_PD_CA7_C3_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x0010)
+#define REG_PMU_APB_PD_MM_TOP_CFG		SCI_ADDR(REGS_PMU_APB_BASE, 0x001C)
 #define REG_PMU_APB_SLEEP_CTRL			SCI_ADDR(REGS_PMU_APB_BASE, 0x00CC)
 
 #define BIT_PD_CA7_C1_FORCE_SHUTDOWN		BIT(25)
 #define BIT_PD_CA7_C1_AUTO_SHUTDOWN_EN		BIT(24)
+#define BIT_PD_MM_TOP_FORCE_SHUTDOWN		BIT(25)
 
 /*
  * ANA / SC2723 (A-Die) Registers on ADI Slave Bus (0x40038000)
@@ -562,6 +571,16 @@ static inline int sci_adi_set(unsigned long reg, u16 bits)
 static inline int sci_adi_clr(unsigned long reg, u16 bits)
 {
 	return sci_adi_write(reg, 0, bits);
+}
+
+static inline u32 sci_get_chip_id(void)
+{
+#ifdef REG_AON_APB_AON_CHIP_ID
+	u32 id = readl_relaxed((void __iomem *)REG_AON_APB_AON_CHIP_ID);
+	if (id != 0)
+		return id;
+#endif
+	return 0x8730c000;
 }
 
 #endif /* __SOC_SPRD_IOMAP_H */
