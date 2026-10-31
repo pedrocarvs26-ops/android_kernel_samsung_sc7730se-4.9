@@ -2884,6 +2884,10 @@ static int32_t gsp_clock_init(void)
 
 #ifdef CONFIG_OF
     g_gsp_emc_clk = of_clk_get_by_name(gsp_of_dev->of_node, GSP_EMC_CLOCK_NAME);
+    if (IS_ERR(g_gsp_emc_clk))
+        g_gsp_emc_clk = of_clk_get_by_name(gsp_of_dev->of_node, "clk_gsp_emc");
+    if (IS_ERR(g_gsp_emc_clk))
+        g_gsp_emc_clk = of_clk_get_by_name(gsp_of_dev->of_node, "clk_disp_emc");
 #else
     g_gsp_emc_clk = clk_get(NULL, GSP_EMC_CLOCK_NAME);
 #endif
@@ -2896,8 +2900,7 @@ static int32_t gsp_clock_init(void)
 
     ret = clk_set_parent(g_gsp_emc_clk, emc_clk_parent);
     if(ret) {
-        printk(KERN_ERR "gsp: gsp set emc clk parent failed!\n");
-        return -1;
+        printk(KERN_WARNING "gsp: gsp set emc clk parent returned %d (ignored)\n", ret);
     } else {
         printk(KERN_INFO "gsp: gsp set emc clk parent ok!\n");//pr_debug
     }
@@ -2928,12 +2931,11 @@ static int32_t gsp_clock_init(void)
 
     ret = clk_set_parent(g_gsp_clk, gsp_clk_parent);
     if(ret) {
-        printk(KERN_ERR "gsp: gsp set clk parent failed!\n");
-        return -1;
+        printk(KERN_WARNING "gsp: gsp set clk parent returned %d (ignored)\n", ret);
     } else {
         printk(KERN_INFO "gsp: gsp set clk parent ok!\n");
     }
-    return ret;
+    return 0;
 }
 
 
@@ -2972,7 +2974,7 @@ int32_t gsp_drv_probe(struct platform_device *pdev)
 	ret = of_property_read_u32(gsp_of_dev->of_node, "gsp_mmu_ctrl_base", &gsp_mmu_ctrl_addr);
 	printk("gsp_dt gsp_mmu_ctrl_addr = 0x%x\n",gsp_mmu_ctrl_addr);
 	if(0 != ret){
-		printk("%s: read gsp_mmu_ctrl_addr fail (%d)\n", ret);
+		printk("%s: read gsp_mmu_ctrl_addr fail (%d)\n", __func__, ret);
 		return ret;
 	}
 	if (gsp_mmu_ctrl_addr < 0xC0000000) {

@@ -141,7 +141,9 @@ LOCAL void GSP_SetMiscParameter(void)
 PUBLIC void GSP_module_enable(void)
 {
 	int ret = 0;
-	//GSP_HWMODULE_ENABLE();
+	if(g_gsp_emc_clk != NULL){
+		clk_prepare_enable(g_gsp_emc_clk);
+	}
 	if(g_gsp_clk != NULL){
 #ifdef CONFIG_OF
             ret = clk_prepare_enable(g_gsp_clk);
@@ -161,17 +163,16 @@ PUBLIC void GSP_module_enable(void)
 PUBLIC void GSP_module_disable(void)
 {
 	if(g_gsp_clk != NULL){
-	    //GSP_HWMODULE_DISABLE();//disable may not use the enable regiter
 #ifdef CONFIG_OF
             clk_disable_unprepare(g_gsp_clk);
 #else
 	    clk_disable(g_gsp_clk);
 #endif
-	} else {
-		printk(KERN_ERR "%s: g_gsp_clk not init yet!\n",__FUNCTION__);
+	}
+	if(g_gsp_emc_clk != NULL){
+		clk_disable_unprepare(g_gsp_emc_clk);
 	}
 }
-
 
 PUBLIC void GSP_Init(void)
 {
