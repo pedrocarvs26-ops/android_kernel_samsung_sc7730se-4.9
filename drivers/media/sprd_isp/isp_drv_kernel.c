@@ -1152,10 +1152,18 @@ static long _isp_kernel_ioctl( struct file *fl, unsigned int cmd, unsigned long 
 	return ret;
 }
 
+void __iomem *g_sprd_isp_base = NULL;
+EXPORT_SYMBOL(g_sprd_isp_base);
+
 static int _isp_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	ISP_PRINT ("isp_k:probe start\n");
+
+	if (pdev->dev.of_node)
+		g_sprd_isp_base = of_iomap(pdev->dev.of_node, 0);
+	if (!g_sprd_isp_base)
+		g_sprd_isp_base = ioremap(0x60A00000, 0x8000);
 
 	ret = misc_register(&isp_dev);
 	if (ret) {
@@ -1188,6 +1196,11 @@ static int _isp_remove(struct platform_device * dev)
 
 	if (isp_proc_file) {
 		remove_proc_entry("driver/sprd_isp", NULL);
+	}
+
+	if (g_sprd_isp_base) {
+		iounmap(g_sprd_isp_base);
+		g_sprd_isp_base = NULL;
 	}
 
 	ISP_PRINT ("isp_k: remove end !\n");

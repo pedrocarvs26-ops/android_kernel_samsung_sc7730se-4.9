@@ -53,11 +53,13 @@ extern   "C"
 #define BIT_31                                         0x80000000
 
 
-#define ISP_DCAM_BASE		SPRD_DCAM_BASE
+extern void __iomem *g_sprd_isp_base;
+extern uint32_t dcam_regbase;
+#define ISP_DCAM_BASE		dcam_regbase
 #define ISP_DCAM_INT_STS		(ISP_DCAM_BASE + 0x0030UL)
 #define ISP_DCAM_INT_CLR		(ISP_DCAM_BASE + 0x0038UL)
 
-#define ISP_BASE_ADDR		SPRD_ISP_BASE
+#define ISP_BASE_ADDR		((unsigned long)g_sprd_isp_base)
 #define ISP_LNC_LOAD		(ISP_BASE_ADDR+0x0220UL)
 #define ISP_AXI_MASTER		(ISP_BASE_ADDR+0x2000UL)
 #define ISP_INT_RAW		(ISP_BASE_ADDR+0x2080UL)

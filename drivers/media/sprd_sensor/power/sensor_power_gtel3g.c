@@ -18,6 +18,7 @@
 #include <linux/kernel.h>
 #include <mach/hardware.h>
 #include <mach/board.h>
+#include <video/sensor_drv_k.h>
 #include "../sensor_drv_sprd.h"
 
 static int sensor_s5k4ecgx_poweron(struct sensor_power *main_cfg, struct sensor_power *sub_cfg)

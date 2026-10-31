@@ -18,11 +18,13 @@
 #include <linux/sprd_mm.h>
 
 
+#ifndef DCAM_BASE
 #ifdef CONFIG_OF
 extern uint32_t                   dcam_regbase;
 #define DCAM_BASE		dcam_regbase
 #else
 #define DCAM_BASE		SPRD_DCAM_BASE
+#endif
 #endif
 
 void   parse_baseaddress(struct device_node	*dn);

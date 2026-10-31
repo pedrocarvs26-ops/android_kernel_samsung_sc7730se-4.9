@@ -45,13 +45,14 @@ static atomic_t	mm_enabe_cnt = ATOMIC_INIT(0);
 void   parse_baseaddress(struct device_node	*dn)
 {
 #ifdef CONFIG_OF
-	struct resource  r;
-
-	if (0 == of_address_to_resource(dn, 0,&r)) {
-		PARSE_TRACE("DCAM BASE=0x%x \n",r.start);
-		dcam_regbase = r.start;
-	} else {
-		printk("DCAM BASE ADDRESS ERROR\n");
+	if (!dcam_regbase) {
+		void __iomem *base = of_iomap(dn, 0);
+		if (base) {
+			dcam_regbase = (uint32_t)base;
+			pr_info("DCAM BASE mapped at 0x%x\n", dcam_regbase);
+		} else {
+			pr_err("DCAM BASE ADDRESS ERROR: of_iomap failed\n");
+		}
 	}
 #endif
 }

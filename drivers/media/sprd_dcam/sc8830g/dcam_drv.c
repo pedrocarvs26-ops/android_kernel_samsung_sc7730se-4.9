@@ -3741,7 +3741,7 @@ LOCAL int32_t    _dcam_err_pre_proc(void)
 	s_p_dcam_mod->err_happened = 1;
 	printk("DCAM: err, 0x%x, ISP int 0x%x \n",
 		REG_RD(DCAM_INT_STS),
-		REG_RD(SPRD_ISP_BASE + 0x2080));
+		g_sprd_isp_base ? REG_RD(SPRD_ISP_BASE + 0x2080) : 0);
 
 	_dcam_reg_trace();
 	dcam_glb_reg_mwr(DCAM_CONTROL, BIT_2, 0, DCAM_CONTROL_REG); /* Cap Disable */

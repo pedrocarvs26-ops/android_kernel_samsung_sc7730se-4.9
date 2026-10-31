@@ -79,10 +79,14 @@ static void csi_enable(void)
     sci_glb_clr(CSI2_RST, CSI2_RST_BIT);
 }
 
+static void __iomem *s_csi2_base = NULL;
+
 u8 csi_api_init(u32 pclk, u32 phy_id)
 {
     csi_error_t e = SUCCESS;
-    u32 base_address = SPRD_CSI2_BASE;
+    if (!s_csi2_base)
+        s_csi2_base = ioremap(SPRD_CSI2_PHYS, SPRD_CSI2_SIZE);
+    u32 base_address = (u32)s_csi2_base;
     	
     do                                                                                                                     
     {
@@ -668,13 +672,13 @@ int csi_reg_isr(csi2_isr_func user_func, void* user_data)
 
 int csi_read_registers(u32* reg_buf, u32 *buf_len)
 {
-	u32                *reg_addr = (u32*)SPRD_CSI2_BASE;
+	u32                *reg_addr = (u32*)s_csi2_base;
 
-	if (NULL == reg_buf || NULL == buf_len || 0 != (*buf_len % 4)) {
+	if (NULL == reg_buf || NULL == buf_len || 0 != (*buf_len % 4) || NULL == s_csi2_base) {
 		return -1;
 	}
 
-	while (buf_len != 0 && (u32)reg_addr < (SPRD_CSI2_BASE + SPRD_CSI2_REG_SIZE)) {
+	while (buf_len != 0 && (u32)reg_addr < ((u32)s_csi2_base + SPRD_CSI2_REG_SIZE)) {
 		*reg_buf++ = *(volatile u32*)reg_addr++;
 		*buf_len -= 4;
 	}

@@ -2752,6 +2752,8 @@ static int __init sprd_v4l2_probe(struct platform_device *pdev)
 {
 	int                      ret = DCAM_RTN_SUCCESS;
 	printk(KERN_ALERT "dcam_probe called\n");
+	if (pdev->dev.of_node)
+		parse_baseaddress(pdev->dev.of_node);
 	ret = create_instance(pdev);
 	if (ret < 0) {
 		printk(KERN_INFO "Error %d while loading dcam driver\n", ret);
