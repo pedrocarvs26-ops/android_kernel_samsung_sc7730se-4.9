@@ -21,6 +21,9 @@ config ARCH_SC7730SE
 	bool "Spreadtrum SC7730SE / SC8830 (scx35 / scx30g) family"
 	default y
 	select ARM_ERRATA_764369 if SMP
+	select ARCH_SCX35
+	select ARCH_SCX30G
+	select MACH_GTELWIFI
 	help
 	  Support for the Spreadtrum SC7730SE (SC8830 "shark"/scx35/scx30g family)
 	  quad Cortex-A7 SoC, as found in the Samsung Galaxy Tab E 9.6
@@ -31,6 +34,15 @@ config ARCH_SC7730SE
 	  brought up by mach-sprd/platsmp.c through the PMU_APB power domains
 	  and the SCX30G AP_AHB holding pen (0x14) and CPU jump (0x18..0x24)
 	  registers.
+
+config ARCH_SCX35
+	bool
+
+config ARCH_SCX30G
+	bool
+
+config MACH_GTELWIFI
+	bool
 
 config ARM_SPRD_CPUFREQ
 	bool "Spreadtrum SC7730SE CPU Frequency Scaling"

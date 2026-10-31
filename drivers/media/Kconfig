@@ -223,3 +223,14 @@ source "drivers/media/dvb-frontends/Kconfig"
 endif # MEDIA_SUPPORT
 
 source "drivers/media/sprd_gsp/Kconfig"
+
+config VIDEO_DCAM_SPRD
+	tristate "SPRD DCAM driver"
+	depends on ARCH_SPRD
+	select VIDEOBUF_VMALLOC
+	select VIDEOBUF_DMA_CONTIG
+	help
+	  Support digital camera for SPRD SC7730SE
+
+source "drivers/media/sprd_dcam/Kconfig"
+

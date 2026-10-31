@@ -339,6 +339,43 @@
 	};
 
 	/*
+	 * Camera subsystem (DCAM, ISP, CSI-2, Sensor, Scaler, Rotator, DMA copy)
+	 */
+	sprd_dcam: dcam@60800000 {
+		compatible = "sprd,sprd_dcam";
+		reg = <0x60800000 0x10000>;
+		interrupts = <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_mm>, <&clk_dcam>;
+		clock-names = "clk_mm_i", "clk_dcam";
+	};
+
+	sprd_scale: scale {
+		compatible = "sprd,sprd_scale";
+	};
+
+	sprd_rotation: rotation {
+		compatible = "sprd,sprd_rotation";
+	};
+
+	sprd_isp: isp@60a00000 {
+		compatible = "sprd,sprd_isp";
+		reg = <0x60a00000 0x8000>;
+		interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clk_mm>, <&clk_isp>;
+		clock-names = "clk_mm_i", "clk_isp";
+	};
+
+	sprd_dma_copy: dma_copy {
+		compatible = "sprd,sprd_dma_copy";
+	};
+
+	l_sprd_sensor: sprd_sensor {
+		compatible = "sprd,sprd_sensor";
+		clocks = <&clk_mm>, <&clk_sensor>, <&clk_ccir>, <&clk_dcam>, <&clk_dcam_mipi>;
+		clock-names = "clk_mm_i", "clk_sensor", "clk_ccir", "clk_dcam", "clk_dcam_mipi";
+	};
+
+	/*
 	 * IOMMU of the MM masters: page table SRAM (one entry per 4 KiB of
 	 * the window) and control register, as on 3.10.
 	 */

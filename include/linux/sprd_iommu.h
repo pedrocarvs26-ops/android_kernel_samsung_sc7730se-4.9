@@ -11,6 +11,13 @@
 
 struct sg_table;
 
+enum {
+	IOMMU_MM = 0,
+};
+
+static inline void sprd_iommu_module_enable(uint32_t iommu_id) {}
+static inline void sprd_iommu_module_disable(uint32_t iommu_id) {}
+
 #ifdef CONFIG_SPRD_IOMMU
 int sprd_iommu_mm_map(struct sg_table *table, size_t size,
 		      unsigned long *iova);

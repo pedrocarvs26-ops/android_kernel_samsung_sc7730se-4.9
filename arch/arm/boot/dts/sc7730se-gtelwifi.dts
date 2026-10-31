@@ -106,3 +106,23 @@
 		sprd,vibr-voltage = <0xdc>;	/* 3.4 V */
 	};
 };
+
+&l_sprd_sensor {
+	gpios = <&d_gpio 186 0           /*main reset*/
+		 &d_gpio 188 0           /*main power down*/
+		 &d_gpio 238 0           /*sub reset*/
+		 &d_gpio 187 0           /*sub power down*/
+		 &d_gpio 193 0>;         /*main dvdd en*/
+};
+
+&i2c0 {
+	sensor_main@3c {
+		compatible = "sprd,sensor_main";
+		reg = <0x3c>;
+	};
+
+	sensor_sub@21 {
+		compatible = "sprd,sensor_sub";
+		reg = <0x21>;
+	};
+};

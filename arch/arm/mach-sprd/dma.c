@@ -528,6 +528,93 @@ int sci_dma_dump_reg(u32 dma_chn, void __iomem **reg_base)
 }
 EXPORT_SYMBOL_GPL(sci_dma_dump_reg);
 
+#define DMA_MEMCPY_MIN_SIZE 64
+#define DMA_MEMCPY_MAX_SIZE TRSC_LEN_MASK
+
+static void sci_dma_memcpy_irqhandle(int chn, void *data)
+{
+	struct semaphore *dma_sema = (struct semaphore *)data;
+	up(dma_sema);
+}
+
+int sci_dma_memcpy(u32 dest, u32 src, size_t size)
+{
+	int ret;
+	int dma_chn;
+	u32 data_width, src_step;
+	u32 irq_mode;
+	struct sci_dma_cfg cfg;
+	struct semaphore dma_sema;
+
+	if (size < DMA_MEMCPY_MIN_SIZE || size > DMA_MEMCPY_MAX_SIZE)
+		return -EINVAL;
+
+	if (size <= BLK_LEN_MASK)
+		dma_chn = sci_dma_request("dma memcpy", STD_DMA_CHN);
+	else
+		dma_chn = sci_dma_request("dma memcpy", FULL_DMA_CHN);
+
+	if (dma_chn < 0) {
+		pr_err("alloc dma chn fail\n");
+		return dma_chn;
+	}
+
+	sema_init(&dma_sema, 0);
+	memset(&cfg, 0x0, sizeof(cfg));
+
+	if ((size & 0x3) == 0) {
+		data_width = WORD_WIDTH;
+		src_step = 4;
+	} else if ((size & 0x1) == 0) {
+		data_width = SHORT_WIDTH;
+		src_step = 2;
+	} else {
+		data_width = BYTE_WIDTH;
+		src_step = 1;
+	}
+
+	cfg.src_addr = src;
+	cfg.des_addr = dest;
+	cfg.datawidth = data_width;
+	cfg.src_step = src_step;
+	cfg.des_step = src_step;
+	cfg.fragmens_len = DMA_MEMCPY_MIN_SIZE;
+
+	if (size <= BLK_LEN_MASK) {
+		cfg.block_len = size;
+		cfg.req_mode = BLOCK_REQ_MODE;
+		irq_mode = BLK_DONE;
+	} else {
+		cfg.block_len = DMA_MEMCPY_MIN_SIZE;
+		cfg.transcation_len = size;
+		cfg.req_mode = TRANS_REQ_MODE;
+		irq_mode = TRANS_DONE;
+	}
+
+	ret = sci_dma_config(dma_chn, &cfg, 1, NULL);
+	if (ret < 0) {
+		pr_err("dma memcpy config error!\n");
+		sci_dma_free(dma_chn);
+		return -EINVAL;
+	}
+
+	ret = sci_dma_register_irqhandle(dma_chn, irq_mode,
+					 sci_dma_memcpy_irqhandle,
+					 &dma_sema);
+	if (ret < 0) {
+		pr_err("dma register irqhandle failed!\n");
+		sci_dma_free(dma_chn);
+		return ret;
+	}
+
+	sci_dma_start(dma_chn, DMA_UID_SOFTWARE);
+	down(&dma_sema);
+	sci_dma_free(dma_chn);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(sci_dma_memcpy);
+
 static int sci_dma_probe(struct platform_device *pdev)
 {
 	struct resource *res;

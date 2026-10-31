@@ -35,4 +35,10 @@ obj-y += rc/
 obj-y += common/ platform/ pci/ usb/ mmc/ firewire/ spi/
 obj-$(CONFIG_VIDEO_DEV) += radio/
 obj-$(CONFIG_VIDEO_GSP_SPRD) += sprd_gsp/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_dcam/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_scale/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_rotation/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_sensor/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_isp/
+obj-$(CONFIG_VIDEO_DCAM_SPRD) += sprd_dma_copy/
 

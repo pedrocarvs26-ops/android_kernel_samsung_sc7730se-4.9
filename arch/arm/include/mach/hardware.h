@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef __MACH_HARDWARE_H
+#define __MACH_HARDWARE_H
+
+#include <soc/sprd/iomap.h>
+
+#define SPRD_DCAM_BASE		SCI_IOMAP(0x00400000)
+#define SPRD_DCAM_PHYS		0x60800000UL
+#define SPRD_DCAM_SIZE		SZ_64K
+
+#define SPRD_ISP_BASE		SCI_IOMAP(0x00410000)
+#define SPRD_ISP_PHYS		0x60A00000UL
+#define SPRD_ISP_SIZE		SZ_32K
+
+#define DCAM_BASE		SPRD_DCAM_BASE
+
+#ifndef SPRD_ADISLAVE_BASE
+#define SPRD_ADISLAVE_BASE	(SPRD_ADI_BASE + 0x00008000)
+#endif
+#define SPRD_FLASH_OFST		0x0000
+#define SPRD_FLASH_CTRL_BIT	BIT(0)
+#define SPRD_FLASH_LOW_VAL	0x3
+#define SPRD_FLASH_HIGH_VAL	0xf
+
+#endif /* __MACH_HARDWARE_H */

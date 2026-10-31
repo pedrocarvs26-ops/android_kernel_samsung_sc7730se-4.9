@@ -658,5 +658,74 @@
 			clock-output-names = "clk_mmu";
 			sprd,mm-domain;
 		};
+
+		clk_ccir_in: clk_ccir_in {
+			compatible = "sprd,fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <64000000>;
+			clock-output-names = "clk_ccir_in";
+		};
+
+		clk_mm_ahb: clk_mm_ahb {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			reg = <0x60e00020 0x3>;
+			clocks = <&ext_26m>, <&clk_96m>, <&clk_128m>, <&clk_153m6>;
+			clock-output-names = "clk_mm_ahb";
+			sprd,mm-domain;
+		};
+
+		clk_csi: clk_csi {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x60d00008 0x2 0x60d00000 0x10>;
+			clocks = <&clk_mm_ahb>;
+			clock-output-names = "clk_csi";
+			sprd,mm-domain;
+		};
+
+		clk_dcam_mipi: clk_dcam_mipi {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x60d00008 0x1>;
+			clocks = <&clk_csi>;
+			clock-output-names = "clk_dcam_mipi";
+			sprd,mm-domain;
+		};
+
+		clk_isp: clk_isp {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			reg = <0x60e00034 0x3 0x60d00008 0x10 0x60d00000 0x4>;
+			clocks = <&clk_76m8>, <&clk_128m>, <&clk_256m>, <&clk_312m>;
+			clock-output-names = "clk_isp";
+			sprd,mm-domain;
+		};
+
+		clk_ccir: clk_ccir {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			reg = <0x60e00028 0x10000 0x60d00000 0x2>;
+			clocks = <&clk_24m>, <&clk_ccir_in>;
+			clock-output-names = "clk_ccir";
+			sprd,mm-domain;
+		};
+
+		clk_sensor: clk_sensor {
+			compatible = "sprd,composite-dev-clock";
+			#clock-cells = <0>;
+			reg = <0x60e00024 0x3 0x60e00024 0x700 0x60d00008 0x4>;
+			clocks = <&ext_26m>, <&clk_48m>, <&clk_76m8>, <&clk_96m>;
+			clock-output-names = "clk_sensor";
+		};
+
+		clk_dcam: clk_dcam {
+			compatible = "sprd,muxed-clock";
+			#clock-cells = <0>;
+			reg = <0x60e0002c 0x3 0x60d00008 0x8 0x60d00000 0x1>;
+			clocks = <&clk_76m8>, <&clk_128m>, <&clk_256m>, <&clk_312m>;
+			clock-output-names = "clk_dcam";
+			sprd,mm-domain;
+		};
 	};
 };
