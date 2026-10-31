@@ -88,3 +88,11 @@
 		sprd,vibr-voltage = <0xdc>;	/* 3.4 V */
 	};
 };
+
+&i2c2 {
+	sx9500-i2c@28 {
+		compatible = "sx9500-i2c";
+		reg = <0x28>;
+		sx9500-i2c,nirq-gpio = <&d_gpio 167 0x0>;
+	};
+};

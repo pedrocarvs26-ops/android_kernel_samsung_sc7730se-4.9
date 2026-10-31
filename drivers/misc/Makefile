@@ -58,6 +58,7 @@ obj-$(CONFIG_SPRD_JPG)		+= sprd_jpg.o
 obj-$(CONFIG_SPRD_IOMMU)	+= sprd_iommu.o
 obj-$(CONFIG_BCM_BT_RFKILL)	+= bcm-bt-rfkill.o
 obj-$(CONFIG_BCM_BT_LPM)	+= bcm-bt-lpm.o
+obj-$(CONFIG_GPS_BCM47520)	+= sec_gps_bcm47520.o
 
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_core.o
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_bugs.o

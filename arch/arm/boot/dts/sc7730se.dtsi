@@ -449,6 +449,22 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "okay";
+
+		k2hh@1d {
+			compatible = "stm,k2hh";
+			reg = <0x1d>;
+			interrupt-parent = <&d_gpio>;
+			interrupts = <164 0>;
+			stm,irq_gpio = <&d_gpio 164 0x00>;
+			stm,axis_map_x = <1>;
+			stm,axis_map_y = <0>;
+			stm,axis_map_z = <2>;
+			stm,negate_x = <1>;
+			stm,negate_y = <0>;
+			stm,negate_z = <1>;
+			stm,poll_interval = <100>;
+			stm,min_interval = <2>;
+		};
 	};
 
 	i2c3: i2c@70800000 {
@@ -654,6 +670,49 @@
 		compatible = "bcm,bcm-bt-lpm";
 		gpios = <&d_gpio 45 0
 			 &d_gpio 46 0>;
+	};
+
+	gps {
+		compatible = "broadcom,bcm47520";
+		gps-pwr-en = <&d_gpio 168 0>;
+		gps-regulator = "vddcamd";
+		tcxo-regulator = "vddsdio";
+		tcxo-regulator-volt = <3300000>;
+	};
+
+	headset: headset-sprd-sc2723 {
+		compatible = "sprd,headset_sprd_sc2723";
+		gpio_switch = <0>;
+		gpio_detect = <237>;
+		gpio_button = <239>;
+		irq_trigger_level_detect = <0>;
+		irq_trigger_level_button = <0>;
+		adc_threshold_3pole_detect = <1074>;
+		adc_threshold_4pole_detect = <3100>;
+		irq_threshold_buttont = <1>;
+		voltage_headmicbias = <3000000>;
+		nbuttons = <3>;
+
+		headset_buttons_media {
+			adc_min = <0>;
+			adc_max = <200>;
+			code = <226>;
+			type = <0>;
+		};
+
+		headset_buttons_up {
+			adc_min = <201>;
+			adc_max = <390>;
+			code = <115>;
+			type = <0>;
+		};
+
+		headset_buttons_down {
+			adc_min = <391>;
+			adc_max = <860>;
+			code = <114>;
+			type = <0>;
+		};
 	};
 
 	dmac: dma@20100000 {

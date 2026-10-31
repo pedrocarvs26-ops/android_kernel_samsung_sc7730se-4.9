@@ -810,6 +810,14 @@ config BCM_BT_LPM
 	  Enables BT_WAKE and BT_HOST_WAKE low-power handshaking over N_BRCM_HCI
 	  and UART ioctls for Broadcom Bluetooth chips.
 
+config GPS_BCM47520
+	tristate "Broadcom BCM47520 GPS Power Control Driver"
+	depends on OF && GPIOLIB
+	default y
+	help
+	  Enables power control, regulator setup, and sysfs power interface
+	  for Broadcom BCM47520 GNSS chip on Samsung devices.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"

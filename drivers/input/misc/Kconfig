@@ -831,4 +831,12 @@ config INPUT_HISI_POWERKEY
 	  To compile this driver as a module, choose M here: the
 	  module will be called hisi_powerkey.
 
+config HEADSET_SPRD_SC2723
+	tristate "Spreadtrum SC2723 headset & button detect driver"
+	depends on SWITCH && INPUT
+	default y
+	help
+	  Say Y here to enable 3.5mm headset jack detection and headset button
+	  support on Spreadtrum SC2723 PMIC.
+
 endif

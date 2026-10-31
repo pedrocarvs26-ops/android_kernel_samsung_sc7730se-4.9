@@ -6,7 +6,9 @@
 
 static inline int sprd_is_fpga(void) { return 0; }
 static inline u32 sci_get_ana_chip_id(void) { return 0x27230000; }
-static inline int sci_get_ana_chip_ver(void) { return 0xA090; }
+static inline int sci_get_ana_chip_ver(void) { return 0x090; }
+
+#define SC2723ES	0x090
 
 #define SPRD_FLASH_LOW_CUR	110
 #define SPRD_FLASH_HIGH_CUR	470
