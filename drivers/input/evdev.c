@@ -960,7 +960,7 @@ static int evdev_handle_mt_request(struct input_dev *dev,
 	return 0;
 }
 
-static int evdev_revoke(struct evdev *evdev, struct evdev_client *client,
+static int __maybe_unused evdev_revoke(struct evdev *evdev, struct evdev_client *client,
 			struct file *file)
 {
 	client->revoked = true;
@@ -1110,10 +1110,16 @@ static long evdev_do_ioctl(struct file *file, unsigned int cmd,
 			return evdev_ungrab(evdev, client);
 
 	case EVIOCREVOKE:
-		if (p)
-			return -EINVAL;
-		else
-			return evdev_revoke(evdev, client, file);
+		/*
+		 * In Android 3.10 kernels, _IOW('E', 0x91, int) (0x40044591)
+		 * was EVIOCSSUSPENDBLOCK. Proprietary Spreadtrum sensor HAL
+		 * (sensors.vendor.sc8830.so) calls ioctl(fd, 0x40044591, 0)
+		 * during initialization. Upstream Linux 4.9 reused 0x91 as
+		 * EVIOCREVOKE, causing evdev to revoke the HAL's own fd
+		 * and enter an infinite POLLERR|POLLHUP loop!
+		 * Return success without revoking to preserve legacy Android HALs.
+		 */
+		return 0;
 
 	case EVIOCGMASK: {
 		void __user *codes_ptr;
