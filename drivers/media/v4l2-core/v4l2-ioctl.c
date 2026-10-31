@@ -990,31 +990,8 @@ static int check_fmt(struct file *file, enum v4l2_buf_type type)
 
 static void v4l_sanitize_format(struct v4l2_format *fmt)
 {
-	unsigned int offset;
-
-	/*
-	 * The v4l2_pix_format structure has been extended with fields that were
-	 * not previously required to be set to zero by applications. The priv
-	 * field, when set to a magic value, indicates the the extended fields
-	 * are valid. Otherwise they will contain undefined values. To simplify
-	 * the API towards drivers zero the extended fields and set the priv
-	 * field to the magic value when the extended pixel format structure
-	 * isn't used by applications.
-	 */
-
-	if (fmt->type != V4L2_BUF_TYPE_VIDEO_CAPTURE &&
-	    fmt->type != V4L2_BUF_TYPE_VIDEO_OUTPUT)
-		return;
-
-	if (fmt->fmt.pix.priv == V4L2_PIX_FMT_PRIV_MAGIC)
-		return;
-
-	fmt->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
-
-	offset = offsetof(struct v4l2_pix_format, priv)
-	       + sizeof(fmt->fmt.pix.priv);
-	memset(((void *)&fmt->fmt.pix) + offset, 0,
-	       sizeof(fmt->fmt.pix) - offset);
+	/* Spreadtrum camera HAL uses fmt.pix.priv for need_isp flag; do not clobber it. */
+	return;
 }
 
 static int v4l_querycap(const struct v4l2_ioctl_ops *ops,
@@ -1496,8 +1473,6 @@ static int v4l_s_fmt(const struct v4l2_ioctl_ops *ops,
 			break;
 		CLEAR_AFTER_FIELD(p, fmt.pix);
 		ret = ops->vidioc_s_fmt_vid_cap(file, fh, arg);
-		/* just in case the driver zeroed it again */
-		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
 		if (is_tch)
 			v4l_pix_format_touch(&p->fmt.pix);
 		return ret;
@@ -1583,8 +1558,6 @@ static int v4l_try_fmt(const struct v4l2_ioctl_ops *ops,
 			break;
 		CLEAR_AFTER_FIELD(p, fmt.pix);
 		ret = ops->vidioc_try_fmt_vid_cap(file, fh, arg);
-		/* just in case the driver zeroed it again */
-		p->fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
 		return ret;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
 		if (unlikely(!is_rx || !is_vid || !ops->vidioc_try_fmt_vid_cap_mplane))
@@ -1962,18 +1935,12 @@ static int v4l_s_parm(const struct v4l2_ioctl_ops *ops,
 	if (ret)
 		return ret;
 
-	/* Note: extendedmode is never used in drivers */
-	if (V4L2_TYPE_IS_OUTPUT(p->type)) {
-		memset(p->parm.output.reserved, 0,
-		       sizeof(p->parm.output.reserved));
-		p->parm.output.extendedmode = 0;
-		p->parm.output.outputmode &= V4L2_MODE_HIGHQUALITY;
-	} else {
-		memset(p->parm.capture.reserved, 0,
-		       sizeof(p->parm.capture.reserved));
-		p->parm.capture.extendedmode = 0;
-		p->parm.capture.capturemode &= V4L2_MODE_HIGHQUALITY;
-	}
+	/*
+	 * Spreadtrum vendor camera HAL uses extendedmode, reserved[0..3],
+	 * and custom capability/capturemode flags for channel configuration,
+	 * crop windows, frame IDs, and sensor modes.
+	 * Preserve all parameters directly for driver handling.
+	 */
 	return ops->vidioc_s_parm(file, fh, p);
 }
 

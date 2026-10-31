@@ -631,6 +631,16 @@ LOCAL int sprd_v4l2_check_path1_cap(uint32_t fourcc,
 	path->img_deci.y_factor = 0;
 	tempw = path->in_rect.w;
 	temph = path->in_rect.h;
+	if (0 == tempw || 0 == temph) {
+		tempw = info->cap_out_size.w ? info->cap_out_size.w : f->fmt.pix.width;
+		temph = info->cap_out_size.h ? info->cap_out_size.h : f->fmt.pix.height;
+		path->in_rect.x = 0;
+		path->in_rect.y = 0;
+		path->in_rect.w = tempw;
+		path->in_rect.h = temph;
+		path->in_size.w = tempw;
+		path->in_size.h = temph;
+	}
 	info->img_deci.x_factor = 0;
 	f->fmt.pix.sizeimage = 0;
 	/*app should fill in this field(fmt.pix.priv) to set the base index of frame buffer,
@@ -858,6 +868,16 @@ LOCAL int sprd_v4l2_check_path2_cap(uint32_t fourcc,
 		tempw = path->in_rect.w;
 	}
 	temph = path->in_rect.h;
+	if (0 == tempw || 0 == temph) {
+		tempw = info->cap_out_size.w ? info->cap_out_size.w : f->fmt.pix.width;
+		temph = info->cap_out_size.h ? info->cap_out_size.h : f->fmt.pix.height;
+		path->in_rect.x = 0;
+		path->in_rect.y = 0;
+		path->in_rect.w = tempw;
+		path->in_rect.h = temph;
+		path->in_size.w = tempw;
+		path->in_size.h = temph;
+	}
 	switch (fourcc) {
 	case V4L2_PIX_FMT_YUV422P:
 	case V4L2_PIX_FMT_YUV420:
@@ -1463,9 +1483,13 @@ LOCAL int v4l2_s_parm(struct file *file,
 		crop.c.top    = streamparm->parm.capture.reserved[1];
 		crop.c.width  = streamparm->parm.capture.reserved[2];
 		crop.c.height = streamparm->parm.capture.reserved[3];
-		if (unlikely(crop.c.left + crop.c.width > (int)dev->dcam_cxt.cap_in_size.w ||
-			crop.c.top + crop.c.height > (int)dev->dcam_cxt.cap_in_size.h))
-			return -EINVAL;
+		if (dev->dcam_cxt.cap_in_size.w != 0 && dev->dcam_cxt.cap_in_size.h != 0) {
+			if (unlikely(crop.c.left + crop.c.width > (int)dev->dcam_cxt.cap_in_size.w ||
+				crop.c.top + crop.c.height > (int)dev->dcam_cxt.cap_in_size.h)) {
+				mutex_unlock(&dev->dcam_mutex);
+				return -EINVAL;
+			}
+		}
 		DCAM_TRACE("V4L2: v4l2_s_crop, window %d %d %d %d \n",
 			crop.c.left,
 			crop.c.top,
