@@ -615,8 +615,39 @@ static u8 dualshock4_bt_rdesc[] = {
 	0x09, 0x05,         /*  Usage (Gamepad),                    */
 	0xA1, 0x01,         /*  Collection (Application),           */
 	0x85, 0x01,         /*      Report ID (1),                  */
+	0x09, 0x30,         /*      Usage (X),                      */
+	0x09, 0x31,         /*      Usage (Y),                      */
+	0x09, 0x32,         /*      Usage (Z),                      */
+	0x09, 0x35,         /*      Usage (Rz),                     */
+	0x15, 0x00,         /*      Logical Minimum (0),            */
+	0x26, 0xFF, 0x00,   /*      Logical Maximum (255),          */
 	0x75, 0x08,         /*      Report Size (8),                */
-	0x95, 0x0A,         /*      Report Count (9),               */
+	0x95, 0x04,         /*      Report Count (4),               */
+	0x81, 0x02,         /*      Input (Variable),               */
+	0x09, 0x39,         /*      Usage (Hat Switch),             */
+	0x15, 0x00,         /*      Logical Minimum (0),            */
+	0x25, 0x07,         /*      Logical Maximum (7),            */
+	0x75, 0x04,         /*      Report Size (4),                */
+	0x95, 0x01,         /*      Report Count (1),               */
+	0x81, 0x42,         /*      Input (Variable, Null State),   */
+	0x05, 0x09,         /*      Usage Page (Button),            */
+	0x19, 0x01,         /*      Usage Minimum (01h),            */
+	0x29, 0x0E,         /*      Usage Maximum (0Eh),            */
+	0x15, 0x00,         /*      Logical Minimum (0),            */
+	0x25, 0x01,         /*      Logical Maximum (1),            */
+	0x75, 0x01,         /*      Report Size (1),                */
+	0x95, 0x0E,         /*      Report Count (14),              */
+	0x81, 0x02,         /*      Input (Variable),               */
+	0x75, 0x06,         /*      Report Size (6),                */
+	0x95, 0x01,         /*      Report Count (1),               */
+	0x81, 0x01,         /*      Input (Constant),               */
+	0x05, 0x01,         /*      Usage Page (Desktop),           */
+	0x09, 0x33,         /*      Usage (Rx),                     */
+	0x09, 0x34,         /*      Usage (Ry),                     */
+	0x15, 0x00,         /*      Logical Minimum (0),            */
+	0x26, 0xFF, 0x00,   /*      Logical Maximum (255),          */
+	0x75, 0x08,         /*      Report Size (8),                */
+	0x95, 0x02,         /*      Report Count (2),               */
 	0x81, 0x02,         /*      Input (Variable),               */
 	0x06, 0x04, 0xFF,   /*      Usage Page (FF04h),             */
 	0x85, 0x02,         /*      Report ID (2),                  */
@@ -667,67 +698,10 @@ static u8 dualshock4_bt_rdesc[] = {
 	0x85, 0x11,         /*      Report ID (17),                 */
 	0x06, 0x00, 0xFF,   /*      Usage Page (FF00h),             */
 	0x09, 0x20,         /*      Usage (20h),                    */
-	0x95, 0x02,         /*      Report Count (2),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x05, 0x01,         /*      Usage Page (Desktop),           */
-	0x09, 0x30,         /*      Usage (X),                      */
-	0x09, 0x31,         /*      Usage (Y),                      */
-	0x09, 0x32,         /*      Usage (Z),                      */
-	0x09, 0x35,         /*      Usage (Rz),                     */
 	0x15, 0x00,         /*      Logical Minimum (0),            */
 	0x26, 0xFF, 0x00,   /*      Logical Maximum (255),          */
 	0x75, 0x08,         /*      Report Size (8),                */
-	0x95, 0x04,         /*      Report Count (4),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x09, 0x39,         /*      Usage (Hat Switch),             */
-	0x15, 0x00,         /*      Logical Minimum (0),            */
-	0x25, 0x07,         /*      Logical Maximum (7),            */
-	0x75, 0x04,         /*      Report Size (4),                */
-	0x95, 0x01,         /*      Report Count (1),               */
-	0x81, 0x42,         /*      Input (Variable, Null State),   */
-	0x05, 0x09,         /*      Usage Page (Button),            */
-	0x19, 0x01,         /*      Usage Minimum (01h),            */
-	0x29, 0x0E,         /*      Usage Maximum (0Eh),            */
-	0x15, 0x00,         /*      Logical Minimum (0),            */
-	0x25, 0x01,         /*      Logical Maximum (1),            */
-	0x75, 0x01,         /*      Report Size (1),                */
-	0x95, 0x0E,         /*      Report Count (14),              */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x75, 0x06,         /*      Report Size (6),                */
-	0x95, 0x01,         /*      Report Count (1),               */
-	0x81, 0x01,         /*      Input (Constant),               */
-	0x05, 0x01,         /*      Usage Page (Desktop),           */
-	0x09, 0x33,         /*      Usage (Rx),                     */
-	0x09, 0x34,         /*      Usage (Ry),                     */
-	0x15, 0x00,         /*      Logical Minimum (0),            */
-	0x26, 0xFF, 0x00,   /*      Logical Maximum (255),          */
-	0x75, 0x08,         /*      Report Size (8),                */
-	0x95, 0x02,         /*      Report Count (2),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x06, 0x00, 0xFF,   /*      Usage Page (FF00h),             */
-	0x09, 0x20,         /*      Usage (20h),                    */
-	0x95, 0x03,         /*      Report Count (3),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x05, 0x01,         /*      Usage Page (Desktop),           */
-	0x19, 0x40,         /*      Usage Minimum (40h),            */
-	0x29, 0x42,         /*      Usage Maximum (42h),            */
-	0x16, 0x00, 0x80,   /*      Logical Minimum (-32768),       */
-	0x26, 0x00, 0x7F,   /*      Logical Maximum (32767),        */
-	0x75, 0x10,         /*      Report Size (16),               */
-	0x95, 0x03,         /*      Report Count (3),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x19, 0x43,         /*      Usage Minimum (43h),            */
-	0x29, 0x45,         /*      Usage Maximum (45h),            */
-	0x16, 0x00, 0xE0,   /*      Logical Minimum (-8192),        */
-	0x26, 0xFF, 0x1F,   /*      Logical Maximum (8191),         */
-	0x95, 0x03,         /*      Report Count (3),               */
-	0x81, 0x02,         /*      Input (Variable),               */
-	0x06, 0x00, 0xFF,   /*      Usage Page (FF00h),             */
-	0x09, 0x20,         /*      Usage (20h),                    */
-	0x15, 0x00,         /*      Logical Minimum (0),            */
-	0x26, 0xFF, 0x00,   /*      Logical Maximum (255),          */
-	0x75, 0x08,         /*      Report Size (8),                */
-	0x95, 0x31,         /*      Report Count (51),              */
+	0x95, 0x4D,         /*      Report Count (77),              */
 	0x81, 0x02,         /*      Input (Variable),               */
 	0x09, 0x21,         /*      Usage (21h),                    */
 	0x75, 0x08,         /*      Report Size (8),                */
@@ -1320,13 +1294,24 @@ static int sony_raw_event(struct hid_device *hdev, struct hid_report *report,
 	} else if ((sc->quirks & NAVIGATION_CONTROLLER) && rd[0] == 0x01 &&
 			size == 49) {
 		sixaxis_parse_report(sc, rd, size);
-	} else if (((sc->quirks & DUALSHOCK4_CONTROLLER_USB) && rd[0] == 0x01 &&
-			size == 64) || ((sc->quirks & DUALSHOCK4_CONTROLLER_BT)
-			&& rd[0] == 0x11 && size == 78)) {
+	} else if ((sc->quirks & DUALSHOCK4_CONTROLLER_USB) && rd[0] == 0x01 &&
+			size == 64) {
 		dualshock4_parse_report(sc, rd, size);
+	} else if ((sc->quirks & DUALSHOCK4_CONTROLLER_BT) && rd[0] == 0x11 &&
+			size >= 12) {
+		if (size >= 78)
+			dualshock4_parse_report(sc, rd, size);
+		/*
+		 * Convert extended BT Report 0x11 (where axes/buttons are at
+		 * rd[3..11]) into standard BT Report 0x01 (rd[1..9]) so that
+		 * both standard Report 0x01 (clones / pre-0x02) and extended
+		 * Report 0x11 use the exact same HID input field mapping.
+		 */
+		rd[0] = 0x01;
+		memmove(&rd[1], &rd[3], 9);
 	}
 
-	if (sc->defer_initialization) {
+	if (sc->defer_initialization && !(sc->quirks & DUALSHOCK4_CONTROLLER_BT)) {
 		sc->defer_initialization = 0;
 		sony_schedule_work(sc);
 	}
@@ -1924,11 +1909,13 @@ static void dualshock4_send_output_report(struct sony_sc *sc)
 	buf[offset++] = sc->led_delay_on[3];
 	buf[offset++] = sc->led_delay_off[3];
 
-	if (sc->quirks & DUALSHOCK4_CONTROLLER_USB)
+	if (sc->quirks & DUALSHOCK4_CONTROLLER_USB) {
 		hid_hw_output_report(hdev, buf, DS4_REPORT_0x05_SIZE);
-	else
-		hid_hw_raw_request(hdev, 0x11, buf, DS4_REPORT_0x11_SIZE,
-				HID_OUTPUT_REPORT, HID_REQ_SET_REPORT);
+	} else if ((sc->quirks & DUALSHOCK4_CONTROLLER_BT) &&
+		   sc->defer_initialization) {
+		sc->defer_initialization = 0;
+		dualshock4_set_operational_bt(hdev);
+	}
 }
 
 static void motion_send_output_report(struct sony_sc *sc)
@@ -2424,13 +2411,13 @@ static int sony_probe(struct hid_device *hdev, const struct hid_device_id *id)
 			/*
 			 * The DualShock 4 wants output reports sent on the ctrl
 			 * endpoint when connected via Bluetooth.
+			 * Request Feature Report 0x02 asynchronously from
+			 * sony_state_worker (triggered by sony_leds_init) so
+			 * sony_probe() registers FF before EventHub opens it.
 			 */
 			hdev->quirks |= HID_QUIRK_NO_OUTPUT_REPORTS_ON_INTR_EP;
-			ret = dualshock4_set_operational_bt(hdev);
-			if (ret < 0) {
-				hid_err(hdev, "failed to set the Dualshock 4 operational mode\n");
-				goto err_stop;
-			}
+			sc->defer_initialization = 1;
+			ret = 0;
 		}
 
 		sony_init_output_report(sc, dualshock4_send_output_report);
