@@ -717,6 +717,7 @@
 			reg = <0x60e00024 0x3 0x60e00024 0x700 0x60d00008 0x4>;
 			clocks = <&ext_26m>, <&clk_48m>, <&clk_76m8>, <&clk_96m>;
 			clock-output-names = "clk_sensor";
+			sprd,mm-domain;
 		};
 
 		clk_dcam: clk_dcam {

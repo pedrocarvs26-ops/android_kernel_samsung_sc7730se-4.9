@@ -556,6 +556,19 @@ static const struct clk_ops sprd_mm_mux_ops = {
 	.set_parent	= sprd_mm_mux_set_parent,
 };
 
+static const struct clk_ops sprd_mm_clk_composite_ops = {
+	.prepare	= sprd_mm_clk_prepare,
+	.unprepare	= sprd_mm_clk_unprepare,
+	.enable		= sprd_mm_clk_enable,
+	.disable	= sprd_mm_clk_disable,
+	.is_enabled	= sprd_mm_clk_is_enabled,
+	.get_parent	= sprd_mm_mux_get_parent,
+	.set_parent	= sprd_mm_mux_set_parent,
+	.recalc_rate	= sprd_clk_divider_recalc_rate,
+	.round_rate	= sprd_clk_divider_round_rate,
+	.set_rate	= sprd_clk_divider_set_rate,
+};
+
 static const struct clk_ops sprd_clk_fixed_pll_ops = {
 	.prepare	= sprd_clk_prepare,
 	.unprepare	= sprd_clk_unprepare,
@@ -841,8 +854,10 @@ static struct clk_sprd *__init __of_sprd_composite_clk_setup(struct device_node 
 	if (of_property_read_bool(node, "sprd,mm-domain")) {
 		if (selreg && !divreg)
 			init.ops = &sprd_mm_mux_ops;
+		else if (selreg && divreg)
+			init.ops = &sprd_mm_clk_composite_ops;
 		else
-			pr_warn("%s: sprd,mm-domain is only supported on muxes\n",
+			pr_warn("%s: sprd,mm-domain is only supported on muxes and composite clocks\n",
 				clk_name);
 	}
 
