@@ -2060,56 +2060,8 @@ static int GSP_Unmap(void)
 }
 static GSP_ADDR_TYPE_E GSP_Get_Addr_Type(void)
 {
-    static volatile GSP_ADDR_TYPE_E s_gsp_addr_type = GSP_ADDR_TYPE_INVALUE;
-    static uint32_t s_iommuCtlBugChipList[]= {0x7715a000,0x7715a001,0x8815a000}; //bug chip list
-    //0x8730b000 tshark
-    //0x8300a001 shark
-
-
-#ifndef CONFIG_SPRD_IOMMU // shark or (dolphin/tshark not define IOMMU)
-    s_gsp_addr_type = GSP_ADDR_TYPE_PHYSICAL;
-#else // (dolphin/tshark defined IOMMU)
-    if(s_gsp_addr_type == GSP_ADDR_TYPE_INVALUE)
-    {
-        uint32_t adie_chip_id = 0;
-        int i = 0;
-        /*set s_gsp_addr_type according to the chip id*/
-        //adie_chip_id = sci_get_ana_chip_id();
-        //printk("GSPa : get chip id :0x%08x \n", adie_chip_id);
-        adie_chip_id = sci_get_chip_id();
-        printk("GSPd : get chip id :0x%08x \n", adie_chip_id);
-
-        if((adie_chip_id & 0xffff0000) > 0x50000000)
-        {
-            printk("GSP : get chip id :%08x is validate, scan bugchip list.\n", adie_chip_id);
-            for (i=0; i<ARRAY_SIZE(s_iommuCtlBugChipList); i++)
-            {
-                if(s_iommuCtlBugChipList[i] == adie_chip_id)
-                {
-                    printk("GSP : match bug chip id :%08x == [%d]\n", adie_chip_id,i);
-#ifdef GSP_IOMMU_WORKAROUND1
-                    s_gsp_addr_type = GSP_ADDR_TYPE_IOVIRTUAL;
-#else
-                    s_gsp_addr_type = GSP_ADDR_TYPE_PHYSICAL;
-#endif
-                    break;
-                }
-            }
-            if(s_gsp_addr_type == GSP_ADDR_TYPE_INVALUE)
-            {
-                printk("GSP : mismatch bug chip id.\n");
-                s_gsp_addr_type = GSP_ADDR_TYPE_IOVIRTUAL;
-                printk("dolphin tshark GSP : gsp address type :%d \n", s_gsp_addr_type);
-            }
-        }
-        else
-        {
-            printk("GSP : get chip id :%08x is invalidate,set address type as physical.\n", adie_chip_id);
-            s_gsp_addr_type = GSP_ADDR_TYPE_PHYSICAL;
-        }
-    }
-#endif
-    printk("GSP [%d]: gsp address type :%d ,\n", __LINE__, s_gsp_addr_type);
+    static volatile GSP_ADDR_TYPE_E s_gsp_addr_type = GSP_ADDR_TYPE_PHYSICAL;
+    printk("GSP [%d]: gsp address type :%d (PHYSICAL)\n", __LINE__, s_gsp_addr_type);
     return s_gsp_addr_type;
 }
 

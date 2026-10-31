@@ -525,7 +525,7 @@ static int sprd_ion_probe(struct platform_device *pdev)
 		struct ion_platform_heap *data = &sprd_ion_heaps[i];
 		struct ion_heap *heap;
 
-		if (data->id == ION_HEAP_ID_MM && cma)
+		if ((data->id == ION_HEAP_ID_MM || data->id == ION_HEAP_ID_OVERLAY) && cma)
 			heap = sprd_ion_cma_heap_create(dev, data);
 		else
 			heap = ion_heap_create(data);
@@ -537,7 +537,7 @@ static int sprd_ion_probe(struct platform_device *pdev)
 		ion_device_add_heap(sprd_idev, heap);
 		nr++;
 	}
-	pr_info("%d heaps: ids 1/3 (system/overlay) system pages, id 2 (mm) %s\n",
+	pr_info("%d heaps: id 1 (system) system pages, ids 2/3 (mm/overlay) %s\n",
 		nr, cma ? "contiguous CMA" : "system pages");
 	pr_info("display sync timelines: primary/virtual (sync_file)\n");
 	return 0;
