@@ -32,4 +32,13 @@ config ARCH_SC7730SE
 	  and the SCX30G AP_AHB holding pen (0x14) and CPU jump (0x18..0x24)
 	  registers.
 
+config ARM_SPRD_CPUFREQ
+	bool "Spreadtrum SC7730SE CPU Frequency Scaling"
+	depends on ARCH_SC7730SE && CPU_FREQ
+	default y
+	help
+	  CPU frequency scaling driver for Spreadtrum SC7730SE quad Cortex-A7.
+	  Supports scaling from 729.6 MHz to 1.300 GHz with dynamic voltage scaling
+	  via the SC2723 PMIC vddarm regulator.
+
 endif
