@@ -407,71 +407,62 @@ static int32_t _isp_alloc(uint32_t* addr, uint32_t len)
 
 static int32_t _isp_set_clk(enum isp_clk_sel clk_sel)
 {
-	struct clk              *clk_parent;
-	char                    *parent = "clk_256m";
-	int32_t       rtn = 0;
+	unsigned long rate = 256000000;
+	int32_t rtn = 0;
 
 	ISP_CHECK_ZERO(g_isp_dev_ptr);
 
 #if defined(CONFIG_ARCH_SCX35)
 	switch (clk_sel) {
 	case ISP_CLK_312M:
-		parent = "clk_312m";
+		rate = 312000000;
 		break;
 	case ISP_CLK_256M:
-		parent = "clk_256m";
+		rate = 256000000;
 		break;
 	case ISP_CLK_128M:
-		parent = "clk_128m";
+		rate = 128000000;
 		break;
 	case ISP_CLK_48M:
-		parent = "clk_48m";
+		rate = 48000000;
 		break;
 	case ISP_CLK_76M8:
-		parent = "clk_76p8m";
+		rate = 76800000;
 		break;
 
 	case ISP_CLK_NONE:
-		ISP_PRINT("isp_k: ISP close CLK %d \n", (int)clk_get_rate(g_isp_dev_ptr->s_isp_clk));
+		ISP_PRINT("isp_k: ISP close CLK\n");
 		if (g_isp_dev_ptr->s_isp_clk) {
-			clk_disable(g_isp_dev_ptr->s_isp_clk);
+			clk_disable_unprepare(g_isp_dev_ptr->s_isp_clk);
 			clk_put(g_isp_dev_ptr->s_isp_clk);
 			g_isp_dev_ptr->s_isp_clk = NULL;
 		}
 		return 0;
 	default:
-		parent = "clk_128m";
+		rate = 128000000;
 		break;
 	}
 
 	if (NULL == g_isp_dev_ptr->s_isp_clk) {
-		g_isp_dev_ptr->s_isp_clk = clk_get(NULL, "clk_isp");
+		if (isp_dev.this_device && isp_dev.this_device->of_node)
+			g_isp_dev_ptr->s_isp_clk = of_clk_get_by_name(isp_dev.this_device->of_node, "clk_isp");
+		if (IS_ERR_OR_NULL(g_isp_dev_ptr->s_isp_clk))
+			g_isp_dev_ptr->s_isp_clk = clk_get(NULL, "clk_isp");
 		if (IS_ERR(g_isp_dev_ptr->s_isp_clk)) {
-			ISP_PRINT("isp_k: clk_get fail, %d \n", (int)g_isp_dev_ptr->s_isp_clk);
+			ISP_PRINT("isp_k: clk_get fail, %ld\n", PTR_ERR(g_isp_dev_ptr->s_isp_clk));
 			return -1;
 		} else {
-			ISP_PRINT("isp_k: get clk_parent ok \n");
+			ISP_PRINT("isp_k: get clk_isp ok\n");
 		}
 	} else {
-		clk_disable(g_isp_dev_ptr->s_isp_clk);
+		clk_disable_unprepare(g_isp_dev_ptr->s_isp_clk);
 	}
 
-	clk_parent = clk_get(NULL, parent);
-	if (IS_ERR(clk_parent)) {
-		ISP_PRINT("isp_k: dcam_set_clk fail, %d \n", (int)clk_parent);
-		return -1;
-	} else {
-		ISP_PRINT("isp_k: get clk_parent ok \n");
-	}
+	clk_set_rate(g_isp_dev_ptr->s_isp_clk, rate);
 
-	rtn = clk_set_parent(g_isp_dev_ptr->s_isp_clk, clk_parent);
-	if(rtn){
-		ISP_PRINT("isp_k: clk_set_parent fail, %d \n", rtn);
-	}
-
-	rtn = clk_enable(g_isp_dev_ptr->s_isp_clk);
+	rtn = clk_prepare_enable(g_isp_dev_ptr->s_isp_clk);
 	if (rtn) {
-		ISP_PRINT("isp_k: enable isp clk error.\n");
+		ISP_PRINT("isp_k: enable isp clk error: %d\n", rtn);
 		return -1;
 	}
 #endif

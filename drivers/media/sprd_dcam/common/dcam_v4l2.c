@@ -2711,7 +2711,7 @@ LOCAL int __init create_instance(struct platform_device *pdev)
 	DCAM_TRACE("create_instance, 0x%x", (uint32_t)dev);
 	snprintf(dev->v4l2_dev.name, sizeof(dev->v4l2_dev.name),
 		 "%s-%03d", DCAM_MODULE_NAME, pdev->id);
-	ret = v4l2_device_register(NULL, &dev->v4l2_dev);
+	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret)
 		goto free_dev;
 	/* initialize locks */
@@ -2725,6 +2725,9 @@ LOCAL int __init create_instance(struct platform_device *pdev)
 	*vfd = sprd_v4l2_template;
 	vfd->dev_debug = debug;
 //	vfd->lock = &dev->lock;
+	vfd->v4l2_dev = &dev->v4l2_dev;
+	vfd->dev.parent = &pdev->dev;
+	vfd->dev.of_node = pdev->dev.of_node;
 	ret = video_register_device(vfd, VFL_TYPE_GRABBER, video_nr);
 	if (ret < 0)
 		goto rel_vdev;
@@ -2735,7 +2738,6 @@ LOCAL int __init create_instance(struct platform_device *pdev)
 		 sprd_v4l2_template.name, vfd->num);
 	if (video_nr >= 0)
 		video_nr++;
-	vfd->dev.of_node = pdev->dev.of_node;
 	dev->vfd = vfd;
 	v4l2_info(&dev->v4l2_dev, "V4L2 device registered as /dev/video%d\n",
 		  vfd->num);

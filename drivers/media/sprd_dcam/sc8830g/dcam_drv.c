@@ -735,64 +735,51 @@ int32_t dcam_reset(enum dcam_rst_mode reset_mode, uint32_t is_isr)
 int32_t dcam_set_clk(struct device_node *dn, enum dcam_clk_sel clk_sel)
 {
 	enum dcam_drv_rtn       rtn = DCAM_RTN_SUCCESS;
-	struct clk              *clk_parent;
-	char                    *parent = "clk_312m";
+	unsigned long           rate = 128000000;
 	int                     ret = 0;
 
 	switch (clk_sel) {
 	case DCAM_CLK_312M:
-		parent = "clk_312m";
+		rate = 312000000;
 		break;
 	case DCAM_CLK_256M:
-		parent = "clk_256m";
+		rate = 256000000;
 		break;
 	case DCAM_CLK_128M:
-		parent = "clk_128m";
+		rate = 128000000;
 		break;
 	case DCAM_CLK_76M8:
-		parent = "clk_76p8m";
+		rate = 76800000;
 		break;
 	case DCAM_CLK_NONE:
-		printk("DCAM close CLK %d \n", (int)clk_get_rate(s_dcam_clk));
+		printk("DCAM close CLK\n");
 		if (s_dcam_clk) {
-			clk_disable(s_dcam_clk);
+			clk_disable_unprepare(s_dcam_clk);
 			clk_put(s_dcam_clk);
 			s_dcam_clk = NULL;
 		}
 		return 0;
 	default:
-		parent = "clk_128m";
+		rate = 128000000;
 		break;
 	}
 
 	if (NULL == s_dcam_clk) {
 		s_dcam_clk = parse_clk(dn,"clk_dcam");
 		if (IS_ERR(s_dcam_clk)) {
-			printk("DCAM: clk_get fail, %d \n", (int)s_dcam_clk);
+			printk("DCAM: clk_get fail, %ld \n", PTR_ERR(s_dcam_clk));
 			return -1;
 		} else {
-			DCAM_TRACE("DCAM: get clk_parent ok \n");
+			DCAM_TRACE("DCAM: get clk_dcam ok \n");
 		}
 	} else {
-		clk_disable(s_dcam_clk);
+		clk_disable_unprepare(s_dcam_clk);
 	}
 
-	clk_parent = clk_get(NULL, parent);
-	if (IS_ERR(clk_parent)) {
-		printk("DCAM: dcam_set_clk fail, %d \n", (int)clk_parent);
-		return -1;
-	} else {
-		DCAM_TRACE("DCAM: get clk_parent ok \n");
-	}
-
-	ret = clk_set_parent(s_dcam_clk, clk_parent);
-	if(ret){
-		printk("DCAM: clk_set_parent fail, %d \n", ret);
-	}
-
-	ret = clk_enable(s_dcam_clk);
+	clk_set_rate(s_dcam_clk, rate);
+	ret = clk_prepare_enable(s_dcam_clk);
 	if (ret) {
-		printk("enable dcam clk error.\n");
+		printk("enable dcam clk error: %d\n", ret);
 		return -1;
 	}
 	return rtn;

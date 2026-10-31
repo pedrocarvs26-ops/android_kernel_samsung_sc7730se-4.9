@@ -89,7 +89,7 @@ int32_t clk_mm_i_eb(struct device_node *dn, uint32_t enable)
 	}
 
 	if(enable){
-		ret = clk_enable(clk_mm_i);
+		ret = clk_prepare_enable(clk_mm_i);
 		if (ret) {
 			printk("clk_mm_i_eb: enable fail.\n");
 			return -1;
@@ -107,7 +107,7 @@ int32_t clk_mm_i_eb(struct device_node *dn, uint32_t enable)
 			sprd_iommu_module_disable(IOMMU_MM);
 		}
 #endif
-		clk_disable(clk_mm_i);
+		clk_disable_unprepare(clk_mm_i);
 		clk_put(clk_mm_i);
 		clk_mm_i = NULL;
 		udelay(500);

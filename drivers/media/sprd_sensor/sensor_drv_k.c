@@ -266,6 +266,8 @@ struct sensor_module {
 	struct clk                     *ccir_clk;
 	struct clk                     *mipi_clk;
 	struct i2c_client            *cur_i2c_client;
+	struct i2c_client            *main_i2c_client;
+	struct i2c_client            *sub_i2c_client;
 	struct regulator            *camvio_regulator;
 	struct regulator            *camavdd_regulator;
 	struct regulator            *camdvdd_regulator;
@@ -394,7 +396,13 @@ LOCAL int sensor_probe(struct i2c_client *client, const struct i2c_device_id *id
 		res = -ENODEV;
 		goto out;
 	}
-	s_p_sensor_mod->cur_i2c_client = client;
+	if (client->addr == 0x3c)
+		s_p_sensor_mod->main_i2c_client = client;
+	else if (client->addr == 0x21)
+		s_p_sensor_mod->sub_i2c_client = client;
+
+	if (!s_p_sensor_mod->cur_i2c_client || client->addr == 0x3c)
+		s_p_sensor_mod->cur_i2c_client = client;
 
 	SENSOR_PRINT_HIGH(KERN_INFO "sensor_probe : addr 0x%x\n", s_p_sensor_mod->cur_i2c_client->addr);
 	return 0;
@@ -974,14 +982,14 @@ int32_t _sensor_k_mipi_clk_en(struct device_node *dn)
 		s_p_sensor_mod->mipi_clk = parse_clk(dn,"clk_dcam_mipi");
 	}
 
-	if (IS_ERR(s_p_sensor_mod->mipi_clk))
+	if (IS_ERR_OR_NULL(s_p_sensor_mod->mipi_clk))
 	{
 		printk("_sensor_k_mipi_clk_en : Get dcam mipi clk error \n");
 		return -1;
 	}
 	else
 	{
-		ret = clk_enable(s_p_sensor_mod->mipi_clk);
+		ret = clk_prepare_enable(s_p_sensor_mod->mipi_clk);
 		if (ret)
 		{
 			printk("_select_sensor_mclk : Enable dcam mipi clk error %d \n", ret);
@@ -997,7 +1005,7 @@ int32_t _sensor_k_mipi_clk_dis(void)
 
 	if (s_p_sensor_mod->mipi_clk)
 	{
-		clk_disable(s_p_sensor_mod->mipi_clk);
+		clk_disable_unprepare(s_p_sensor_mod->mipi_clk);
 		clk_put(s_p_sensor_mod->mipi_clk);
 		s_p_sensor_mod->mipi_clk = NULL;
 	}
@@ -1006,90 +1014,53 @@ int32_t _sensor_k_mipi_clk_dis(void)
 
 int sensor_k_set_mclk(uint32_t mclk)
 {
-	struct clk *clk_parent = NULL;
-	int ret;
-	char *clk_src_name = NULL;
-	uint8_t clk_div;
+	int ret = 0;
 	SENSOR_CHECK_ZERO(s_p_sensor_mod);
 
 	SENSOR_PRINT_HIGH("sensor_k_set_mclk : Set mclk org = %d, clk = %d\n", s_p_sensor_mod->sensor_mclk, mclk);
 
-	if ((0 != mclk) && (s_p_sensor_mod->sensor_mclk != mclk))
+	if (!s_p_sensor_mod->ccir_clk) {
+		SENSOR_PRINT_ERR("sensor_k_set_mclk : ccir_clk is NULL!\n");
+		return -EINVAL;
+	}
+
+	if (0 != mclk)
 	{
 		if (mclk > SENSOR_MAX_MCLK)
 		{
 			mclk = SENSOR_MAX_MCLK;
 		}
 
-		if (s_p_sensor_mod->sensor_mclk)
-		{
-			clk_disable(s_p_sensor_mod->ccir_clk);
-		}
-
-		if (SENSOR_K_SUCCESS != _select_sensor_mclk((uint8_t) mclk, &clk_src_name, &clk_div))
-		{
-			SENSOR_PRINT_ERR("sensor_k_set_mclk : Sensor_SetMCLK select clock source fail\n");
-			return -EINVAL;
-		}
-
-		SENSOR_PRINT("sensor_k_set_mclk : clk_src_name = %s, clk_div = %d\n", clk_src_name, clk_div);
-
-		clk_parent = clk_get(NULL, clk_src_name);
-		if (!clk_parent)
-		{
-			SENSOR_PRINT_ERR("sensor_k_set_mclk : clock : failed to get clock [%s] by clk_get()!\n", clk_src_name);
-			return -EINVAL;
-		}
-
-		SENSOR_PRINT("sensor_k_set_mclk : clk_get clk_src_name = %s done\n", clk_src_name);
-
-		ret = clk_set_parent(s_p_sensor_mod->ccir_clk, clk_parent);
+		ret = clk_set_rate(s_p_sensor_mod->ccir_clk, (unsigned long)mclk * SENOR_CLK_M_VALUE);
 		if (ret)
 		{
-			SENSOR_PRINT_ERR("sensor_k_set_mclk : clock : clk_set_parent() failed!parent \n");
-			return -EINVAL;
+			SENSOR_PRINT_ERR("sensor_k_set_mclk : clk_set_rate failed: %d\n", ret);
 		}
 
-		SENSOR_PRINT("sensor_k_set_mclk : clk_set_parent s_ccir_clk = %s done\n", (char *)(s_p_sensor_mod->ccir_clk));
-
-		ret = clk_set_rate(s_p_sensor_mod->ccir_clk, (mclk * SENOR_CLK_M_VALUE));
-		if (ret)
+		if (!s_p_sensor_mod->sensor_mclk)
 		{
-			SENSOR_PRINT_ERR("sensor_k_set_mclk : clock : clk_set_rate failed!\n");
-			return -EINVAL;
-		}
-
-		SENSOR_PRINT("sensor_k_set_mclk : clk_set_rate s_ccir_clk = %s done\n", (char *)(s_p_sensor_mod->ccir_clk));
-
-		ret = clk_enable(s_p_sensor_mod->ccir_clk);
-		if (ret)
-		{
-			SENSOR_PRINT_ERR("sensor_k_set_mclk : clock : clk_enable() failed!\n");
-		}
-		else
-		{
-			SENSOR_PRINT("sensor_k_set_mclk : ccir enable clk ok\n");
+			ret = clk_prepare_enable(s_p_sensor_mod->ccir_clk);
+			if (ret)
+			{
+				SENSOR_PRINT_ERR("sensor_k_set_mclk : clk_prepare_enable failed: %d\n", ret);
+			}
+			else
+			{
+				SENSOR_PRINT_HIGH("sensor_k_set_mclk : ccir enable clk ok (%lu Hz)\n",
+					clk_get_rate(s_p_sensor_mod->ccir_clk));
+			}
 		}
 
 		s_p_sensor_mod->sensor_mclk = mclk;
-		SENSOR_PRINT("sensor_k_set_mclk : Set mclk %d Hz\n", s_p_sensor_mod->sensor_mclk);
 	}
 	else if (0 == mclk)
 	{
 		if (s_p_sensor_mod->sensor_mclk)
 		{
-			if (s_p_sensor_mod->ccir_clk)
-			{
-				clk_disable(s_p_sensor_mod->ccir_clk);
-				SENSOR_PRINT("sensor_k_set_mclk : sensor clk disable ok\n");
-			}
+			clk_disable_unprepare(s_p_sensor_mod->ccir_clk);
+			SENSOR_PRINT("sensor_k_set_mclk : sensor clk disable ok\n");
 			s_p_sensor_mod->sensor_mclk = 0;
 		}
-		SENSOR_PRINT("sensor_k_set_mclk : Disable MCLK !!!");
-	}
-	else
-	{
-		SENSOR_PRINT("sensor_k_set_mclk : Do nothing !!");
 	}
 	SENSOR_PRINT_HIGH("sensor_k_set_mclk : X\n");
 
@@ -1131,6 +1102,11 @@ int sensor_k_sensor_sel(uint32_t sensor_id)
 	int ret = 0;
 	SENSOR_CHECK_ZERO(s_p_sensor_mod);
 	s_p_sensor_mod->sensor_id = sensor_id;
+
+	if (sensor_id == SENSOR_MAIN && s_p_sensor_mod->main_i2c_client)
+		s_p_sensor_mod->cur_i2c_client = s_p_sensor_mod->main_i2c_client;
+	else if (sensor_id == SENSOR_SUB && s_p_sensor_mod->sub_i2c_client)
+		s_p_sensor_mod->cur_i2c_client = s_p_sensor_mod->sub_i2c_client;
 
 	return SENSOR_K_SUCCESS;
 }
@@ -1993,6 +1969,8 @@ LOCAL long sensor_k_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		case SENSOR_IO_SET_ID:
 		{
 			ret = copy_from_user(&s_p_sensor_mod->sensor_id, (uint32_t *) arg, sizeof(uint32_t));
+			if (0 == ret)
+				sensor_k_sensor_sel(s_p_sensor_mod->sensor_id);
 		}
 		break;
 
