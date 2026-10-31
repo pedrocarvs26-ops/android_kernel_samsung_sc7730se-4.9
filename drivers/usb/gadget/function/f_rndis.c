@@ -685,6 +685,17 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 
 	rndis_opts = container_of(f->fi, struct f_rndis_opts, func_inst);
 
+	if (rndis_opts->wceis) {
+		rndis_iad_descriptor.bFunctionClass =
+			USB_CLASS_WIRELESS_CONTROLLER;
+		rndis_iad_descriptor.bFunctionSubClass = 0x01;
+		rndis_iad_descriptor.bFunctionProtocol = 0x03;
+		rndis_control_intf.bInterfaceClass =
+			USB_CLASS_WIRELESS_CONTROLLER;
+		rndis_control_intf.bInterfaceSubClass = 0x01;
+		rndis_control_intf.bInterfaceProtocol = 0x03;
+	}
+
 	if (cdev->use_os_string) {
 		f->os_desc_table = kzalloc(sizeof(*f->os_desc_table),
 					   GFP_KERNEL);
@@ -913,7 +924,7 @@ static struct usb_function_instance *rndis_alloc_inst(void)
 
 	mutex_init(&opts->lock);
 	opts->func_inst.free_func_inst = rndis_free_inst;
-	opts->net = gether_setup_default();
+	opts->net = gether_setup_name_default("rndis");
 	if (IS_ERR(opts->net)) {
 		struct net_device *net = opts->net;
 		kfree(opts);

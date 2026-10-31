@@ -2766,6 +2766,15 @@ void fsg_common_remove_luns(struct fsg_common *common)
 }
 EXPORT_SYMBOL_GPL(fsg_common_remove_luns);
 
+struct device *fsg_common_get_lun_dev(struct fsg_common *common,
+				      unsigned int id)
+{
+	if (!common || id >= ARRAY_SIZE(common->luns) || !common->luns[id])
+		return NULL;
+	return &common->luns[id]->dev;
+}
+EXPORT_SYMBOL_GPL(fsg_common_get_lun_dev);
+
 void fsg_common_free_buffers(struct fsg_common *common)
 {
 	_fsg_common_free_buffers(common->buffhds, common->fsg_num_buffers);

@@ -22,6 +22,7 @@ struct f_rndis_opts {
 	struct usb_function_instance	func_inst;
 	u32				vendor_id;
 	const char			*manufacturer;
+	bool				wceis;
 	struct net_device		*net;
 	bool				bound;
 	bool				borrowed_net;

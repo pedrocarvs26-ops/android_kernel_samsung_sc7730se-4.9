@@ -265,6 +265,17 @@
 		status = "disabled";
 	};
 
+	/* DWC_otg 2.93a High-Speed USB 2.0 OTG Controller (0x20200000 mapped at 0xf5116000) */
+	usb: usb@f5116000 {
+		compatible = "sprd,usb";
+		reg = <0xf5116000 0x1000>;
+		interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
+		usb-supply = <&vddusb>;
+		tune_value = <0x44076e33>;
+		tune_value_host = <0x44073133>;
+		status = "okay";
+	};
+
 	gpu: gpu@60000000 {
 		compatible = "sprd,mali-utgard";
 		reg = <0x60001000 0x200>, <0x60000000 0x100>, <0x60003000 0x100>,

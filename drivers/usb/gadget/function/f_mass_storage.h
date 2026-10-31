@@ -137,6 +137,9 @@ int fsg_common_create_lun(struct fsg_common *common, struct fsg_lun_config *cfg,
 
 int fsg_common_create_luns(struct fsg_common *common, struct fsg_config *cfg);
 
+struct device *fsg_common_get_lun_dev(struct fsg_common *common,
+				      unsigned int id);
+
 void fsg_common_set_inquiry_string(struct fsg_common *common, const char *vn,
 				   const char *pn);
 

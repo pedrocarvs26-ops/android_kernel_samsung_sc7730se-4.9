@@ -209,6 +209,18 @@ config USB_F_PRINTER
 config USB_F_TCM
 	tristate
 
+config USB_F_MTP
+	tristate
+
+config USB_F_PTP
+        tristate
+
+config USB_F_AUDIO_SRC
+	tristate
+
+config USB_F_ACC
+	tristate
+
 # this first set of drivers all depend on bulk-capable hardware.
 
 config USB_CONFIGFS
@@ -364,6 +376,45 @@ config USB_CONFIGFS_F_FS
 	  implemented in kernel space (for instance Ethernet, serial or
 	  mass storage) and other are implemented in user space.
 
+config USB_CONFIGFS_F_MTP
+	boolean "MTP gadget"
+	depends on USB_CONFIGFS
+	select USB_F_MTP
+	help
+	  USB gadget MTP support
+
+config USB_CONFIGFS_F_PTP
+	boolean "PTP gadget"
+	depends on USB_CONFIGFS && USB_CONFIGFS_F_MTP
+	select USB_F_PTP
+	help
+	  USB gadget PTP support
+
+config USB_CONFIGFS_F_ACC
+	boolean "Accessory gadget"
+	depends on USB_CONFIGFS
+	depends on HID=y
+	select USB_F_ACC
+	help
+	  USB gadget Accessory support
+
+config USB_CONFIGFS_F_AUDIO_SRC
+	boolean "Audio Source gadget"
+	depends on USB_CONFIGFS && USB_CONFIGFS_F_ACC
+	depends on SND
+	select SND_PCM
+	select USB_F_AUDIO_SRC
+	help
+	  USB gadget Audio Source support
+
+config USB_CONFIGFS_UEVENT
+	boolean "Uevent notification of Gadget state"
+	depends on USB_CONFIGFS
+	help
+	  Enable uevent notifications to userspace when the gadget
+	  state changes. The gadget can be in any of the following
+	  three states: "CONNECTED/DISCONNECTED/CONFIGURED"
+
 config USB_CONFIGFS_F_UAC1
 	bool "Audio Class 1.0"
 	depends on USB_CONFIGFS
@@ -482,5 +533,11 @@ choice
 source "drivers/usb/gadget/legacy/Kconfig"
 
 endchoice
+
+config USB_GADGET_SPRD_DWC
+	bool "Spreadtrum DWC_otg 2.93a USB 2.0 High-Speed Controller"
+	default y
+	help
+	  Spreadtrum SC7730SE / SC8830 DWC_otg USB peripheral controller driver.
 
 endif # USB_GADGET

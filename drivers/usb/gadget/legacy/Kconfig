@@ -481,3 +481,19 @@ config USB_G_WEBCAM
 
 	  Say "y" to link the driver statically, or "m" to build a
 	  dynamically linked module called "g_webcam".
+
+config USB_G_ANDROID
+	bool "Android Composite USB Gadget (/sys/class/android_usb)"
+	select USB_LIBCOMPOSITE
+	select USB_F_FS
+	select USB_F_ACM
+	select USB_U_SERIAL
+	select USB_F_MTP
+	select USB_F_PTP
+	select USB_F_RNDIS
+	select USB_U_ETHER
+	select USB_F_MASS_STORAGE
+	select USB_F_ACC
+	help
+	  Android Composite USB Gadget driver providing /sys/class/android_usb/android0
+	  for ADB (FunctionFS), MTP, PTP, RNDIS, ACM, Mass Storage, and Accessory.

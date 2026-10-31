@@ -348,6 +348,12 @@ struct sc2723_fgu {
 	unsigned int polls;
 };
 
+#ifdef CONFIG_USB_GADGET_SPRD_DWC
+extern void sprd_usb_vbus_set(bool enable);
+#else
+static inline void sprd_usb_vbus_set(bool enable) {}
+#endif
+
 static char *fgu_supplied_to[] = { "battery" };
 
 static inline int fgu_rd(unsigned long reg)
@@ -1151,6 +1157,7 @@ static void fgu_cable_start(struct sc2723_fgu *f, unsigned long delay)
 	f->chg_cfg = false;
 	f->chg_idle = false;
 	f->aicl_pending = false;
+	sprd_usb_vbus_set(true);
 	fgu_chg_queue(f, delay);
 }
 
@@ -1161,6 +1168,7 @@ static void fgu_cable_stop(struct sc2723_fgu *f)
 	f->cable = FGU_CABLE_NONE;
 	f->chg_cfg = false;
 	f->aicl_pending = false;
+	sprd_usb_vbus_set(false);
 	if (f->chg)
 		smb358_idle(f);
 	pm_relax(f->dev);
@@ -1346,6 +1354,7 @@ static void fgu_chg_work(struct work_struct *work)
 			fgu_chg_queue(f, FGU_DET_RETRY);
 			goto out;
 		}
+		sprd_usb_vbus_set(f->cable != FGU_CABLE_DCP);
 		ext = true;
 	}
 
@@ -1711,8 +1720,10 @@ static int sc2723_fgu_probe(struct platform_device *pdev)
 		ret = PTR_ERR(f->vchg);
 		goto err_np;
 	}
-	if (f->vchg)
+	if (f->vchg) {
 		f->online = gpiod_get_value(f->vchg) > 0;
+		sprd_usb_vbus_set(f->online);
+	}
 
 	fgu_hw_init(f);
 	fgu_cal_init(f);
