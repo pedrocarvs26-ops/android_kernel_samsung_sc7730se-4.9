@@ -1,198 +1,103 @@
-# Linux 4.9 for Spreadtrum SC7730SE (Samsung Galaxy Tab E 9.6)
+# Linux 4.9.337 for Samsung Galaxy Tab E 9.6 (SC7730SE)
 
-A from-scratch mainline-style port of **Linux 4.9.337** (final 4.9 LTS release) to the
-Spreadtrum/Unisoc **SC7730SE** SoC, targeting:
+A Linux **4.9.337** port for the Spreadtrum SC7730SE, developed against the
+Samsung/Spreadtrum 3.10 vendor sources and tested with **LineageOS 18.1 / Android 11**.
 
-| Model | Codename | Variant |
-|---|---|---|
-| SM-T560 | `gtelwifi` | Wi-Fi only |
-| SM-T561 | `gtel3g` | 3G |
+**Status updated 2026-10-31:** the kernel boots and is in use on a physical
+**SM-T560 (`gtelwifi`)**. Display, touch, Wi-Fi, Bluetooth, cameras, audio,
+accelerometer, USB modes and other everyday functions work. This is an experimental
+port with remaining validation work; it is not a claim that every subsystem is complete.
 
-* SoC: SC7730SE (family `scx35`, chip `x30g` / "tshark2"), 4x Cortex-A7 @ 1.3 GHz, Mali-400 MP2
-* RAM: 1.5 GB, DDR base `0x80000000`
-* Stock software: Android 4.4.4 with Linux **3.10.17**
+| Target | Validation |
+| --- | --- |
+| SM-T560 / `gtelwifi` / Wi-Fi | Physical-device testing and owner confirmations |
+| SM-T561 / `gtel3g` / 3G | Board source exists; no equivalent physical validation in this work, including modem/telephony |
 
-> **Status: work in progress. Not yet validated on hardware.**
-> This tree builds a `zImage` + appended DTB. It has *not* been proven to boot on a
-> real device, and no display, storage, USB, PMIC, modem or GPU support is wired up yet.
-> Treat every boot attempt as a potential brick risk and keep a working stock firmware
-> plus Odin at hand.
+Hardware: four Cortex-A7 cores up to 1.3 GHz, Mali-400 MP2, 1.5 GB RAM,
+800 x 1280 display. The Android userspace and proprietary HALs are part of the
+working setup; replacing the kernel alone does not reproduce every userspace fix.
 
-## Why 4.9 and not mainline
+## Working and pending features
 
-Upstream Spreadtrum support (`arch/arm64/boot/dts/sprd`, `drivers/clk/sprd`, `sprd_serial`,
-SC27xx PMIC, `sdhci-sprd`) exists only for **arm64** SoCs (SC9860/SC9863A and newer).
-There is nothing upstream for the 32-bit `scx35` generation, and the SoC has:
+| Feature | Current evidence |
+| --- | --- |
+| Android boot, display/backlight, touch and internal storage | Working on SM-T560 |
+| Mali graphics / composition | Drivers integrated; usable graphical interface; no current FPS benchmark claimed |
+| Wi-Fi | Connected with Android internet validation |
+| Bluetooth | Owner confirms working |
+| Front/rear cameras | Owner confirms photos and video working |
+| Speaker and microphone | Playback and recording work; recorded video contains audio |
+| Accelerometer / screen rotation | Owner-confirmed after v41; changing XYZ events verified in Android |
+| Physical buttons | Owner confirms working |
+| USB ADB, MTP, USB tethering and OTG | Working; owner confirms the latter three |
+| Battery readings and USB charging | Charge, voltage and temperature readings available; charging verified |
+| CPU frequency scaling | Frequency controls and approximately 730–1300 MHz table available |
+| GPS / GNSS | Satellite reception confirmed, **no position fix confirmed**; deferred |
+| Vibration | Android and direct-driver commands accepted, **no physical vibration felt**; unresolved |
+| Wired headset / microphone / buttons | Driver integrated; physical test deferred |
+| microSD | Driver integrated; no card available for a physical test |
+| Deep sleep / idle drain | Not measured; owner reports apparently better overall endurance than 3.10 |
+| Thermal management | Battery temperature available; CPU thermal protection/throttling not validated; `/sys/class/thermal` absent in the inspected boot |
+| SELinux | Tested setup is **Permissive**; Enforcing not validated |
 
-* **no PSCI / no secure monitor firmware** usable for CPU bring-up (custom `smp_ops` required),
-* **no ARM architected timer** (timekeeping must use the AON general purpose timers),
-* a completely vendor-specific clock, regulator and pinctrl model.
+See [STATUS](docs/STATUS.md) for evidence, limitations and the kernel/userspace boundary.
 
-4.9 is the sweet spot: it is the newest LTS whose driver APIs are still close enough to the
-3.10 vendor code that hardware drivers can be forward-ported one by one, while `sprd_serial`
-(the only usable upstream sprd driver for this era) is already present, so a serial console
-can be brought up with no vendor code at all.
+## Build
 
-## What is implemented
-
-* `arch/arm/mach-sprd/` — new multiplatform machine (`ARCH_SPRD`, `ARCH_SC7730SE`)
-  * `sprd.c` — `DT_MACHINE_START`, compatible with `sprd,sc7730se` / `sc7730` / `sc8830` / `scx35`
-  * `platsmp.c` — DT-driven SMP bring-up (AP_AHB holding pen + jump address, PMU_APB core
-    power domains), CPU hotplug via SCU + `v7_exit_coherency_flush`
-* `drivers/clocksource/timer-sprd.c` — new driver for the `scx35` AON general purpose timer
-  (clockevent, periodic + oneshot) and the system counter (clocksource + `sched_clock`),
-  including the AON_APB clock gating the bootloader may not have enabled
-* `arch/arm/boot/dts/sc7730se.dtsi` + `sc7730se-gtelwifi.dts` + `sc7730se-gtel3g.dts`
-  — CPUs, GIC, SCU, PMU, syscon regions, timers, 4x UART, memory and vendor carve-outs
-* `arch/arm/configs/sc7730se_defconfig` — small bring-up config (serial console first)
-
-Secondary CPUs currently rely on tick broadcast (single global clockevent + `dummy_timer`),
-which ARM enables automatically through `ARCH_HAS_TICK_BROADCAST` on SMP.
-
-## Hardware documentation
-
-The physical address map, register layouts and bit definitions were reverse engineered from
-the Samsung/Spreadtrum 3.10 vendor kernel and are documented in
-[`docs/HARDWARE.md`](docs/HARDWARE.md). The porting methodology, design decisions and the
-remaining work are in [`docs/PORTING.md`](docs/PORTING.md), and the current state of every
-subsystem plus the failures to expect on a first build/boot are in
-[`docs/STATUS.md`](docs/STATUS.md).
-
-## Repository layout
-
-This is a **full Linux 4.9.337 tree**, not a patch set: the first commit is the pristine
-kernel.org release and the port is committed on top of it, so `git clone` is all you need.
-
-```
-arch/arm/mach-sprd/                     new machine (sprd.c, platsmp.c, core.h, Kconfig)
-drivers/clocksource/timer-sprd.c        new timer + system counter driver
-arch/arm/boot/dts/sc7730se*.dts*        SoC dtsi + SM-T560 and SM-T561 board files
-arch/arm/configs/sc7730se_defconfig     bring-up config
-port/build.sh                           one command cross build
-port/mkboot.sh                          boot.img + Odin tar.md5 packaging
-port/repackboot.py                      swaps the new kernel into a stock boot.img
-port/ci-build.yml                       GitHub Actions workflow template
-.devcontainer/devcontainer.json         Codespaces environment (Ubuntu 20.04 + GCC 9)
-docs/DEBUG-TWRP.md                      reading the kernel log without a UART jig
-docs/                                   hardware map, porting notes, status
-```
-
-## Building
-
-### In GitHub Codespaces (recommended)
-
-Open the repository in a Codespace. The included
-[`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) provisions Ubuntu 20.04
-with the `arm-linux-gnueabihf` cross toolchain, `dtc`, `ccache` and `abootimg`, and exports
-`ARCH=arm` and `CROSS_COMPILE=arm-linux-gnueabihf-` for you. Then:
+The tested development workflow uses the AOSP ARM GCC 4.9 toolchain and **GNU ld.bfd**
+(the kernel linker script uses `OVERLAY`, which gold rejects).
 
 ```sh
-./port/build.sh                 # SM-T560 (gtelwifi)
-BOARD=gtel3g ./port/build.sh    # SM-T561
+export CROSS_COMPILE=/path/to/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
+JOBS=4 ./port/build.sh
+# Alternate board source; not a declaration of SM-T561 hardware validation:
+BOARD=gtel3g JOBS=4 ./port/build.sh
 ```
 
-The script configures the tree, builds `zImage` and both DTBs, and writes the appended-DTB
-image the Samsung bootloader expects:
+`port/build.sh` selects `sc7730se_defconfig`, builds in `BUILD_DIR`
+(default `/tmp/k49-build`), and writes `out/zImage`, both board DTBs and the selected
+`out/zImage-dtb`. Set `BUILD_DIR` and `OUT` to use different output directories.
+It prefers `ld.bfd` when available. Other compilers require their own validation;
+GCC 10+ also needs compatibility adjustments handled by the script.
 
-```
-out/zImage
-out/sc7730se-gtelwifi.dtb
-out/sc7730se-gtel3g.dtb
-out/zImage-dtb            <- zImage + DTB of the selected board
-```
+The [devcontainer](.devcontainer/devcontainer.json) and
+[CI template](port/ci-build.yml) are build helpers, not substitutes for device testing.
 
-### By hand
+## Boot image and installation
+
+Use a known-working boot image for the **same device and installed ROM** as the
+repack base. Preserve its ramdisk, Samsung device-tree area and header fields;
+do not reconstruct them from generic offsets or use a different model's image.
 
 ```sh
-export ARCH=arm
-export CROSS_COMPILE=arm-linux-gnueabihf-
-make sc7730se_defconfig
-make -j"$(nproc)" zImage dtbs
-
-# appended DTB image expected by the Samsung bootloader
-cat arch/arm/boot/zImage arch/arm/boot/dts/sc7730se-gtelwifi.dtb > zImage-dtb
+STOCK=/path/to/known-working-boot.img ./port/mkboot.sh
 ```
 
-### Toolchain
+Review the script and its outputs before installation. Keep a boot backup and a
+working recovery/download path. Install the intended image to Boot/KERNEL using
+TWRP or an appropriate Samsung flashing tool. This documentation update does not
+flash a device. Historical test images are kept on the repository's
+[`boot-images` branch](https://github.com/pedrocarvs26-ops/android_kernel_samsung_sc7730se-4.9/tree/boot-images).
+The latest kernel test image in this work is **v42**; it is not a complete ROM.
 
-Use **GCC 8 or 9**. GCC 10 made `-fno-common` the default, which breaks Linux 4.9 with
-"multiple definition" link errors; `port/build.sh` detects a newer compiler, warns and
-retries with `-fcommon`, but a matching toolchain is much less painful. Ubuntu 20.04 ships
-GCC 9 as `gcc-arm-linux-gnueabihf`, and the AOSP `arm-linux-androideabi-4.9` prebuilt works
-too.
+Current success means booting Android and exercising hardware, not stopping at a
+root-filesystem panic. Single-core boot and framebuffer-console experiments are
+fallback diagnostics, not the normal installation workflow.
 
-### In CI
+## Documentation
 
-[`port/ci-build.yml`](port/ci-build.yml) is a ready GitHub Actions workflow that builds both
-boards inside an `ubuntu:20.04` container and uploads the images as artifacts. Copy it to
-`.github/workflows/build.yml` and push to enable it (that path needs a token with the
-`workflow` scope, which is why it is not enabled by default).
+- [Current status and remaining validation](docs/STATUS.md)
+- [Porting decisions and recent fixes](docs/PORTING.md)
+- [Hardware references](docs/HARDWARE.md)
+- [ADB and recovery debugging](docs/DEBUG-TWRP.md)
 
-## Flashing (read the warnings first)
+This repository contains the complete Linux source tree plus the port. Original
+Linux subsystem documentation remains applicable to its own subject; it is not a
+hardware-support checklist. Local `.k49tools` reference/work directories are not
+release documentation.
 
-TWRP is enough for the whole loop: back up boot, flash a test kernel, read the log, put the
-stock kernel back. No UART jig and no PC are required — see
-[`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md).
+## Credits and license
 
-1. **Back up the stock boot partition first** (TWRP → Backup → *Boot*). Restoring that
-   backup is how you undo a kernel that does not boot. Recovery lives in its own partition
-   and is never touched by any of this.
-2. Repackage the new kernel **into the boot image that is on the tablet right now**, which
-   keeps the ramdisk, the vendor device tree area and every header field:
-
-   ```sh
-   # TWRP -> Backup -> Boot hands you the raw partition; copy it off the device
-   STOCK=stock_boot.img ./port/mkboot.sh
-   # -> out/boot.img, out/boot-nosmp.img, out/boot_gtelwifi.tar.md5
-   ```
-
-   A stock SM-T560 image was dumped and inspected, and its header is *not* what the vendor
-   kernel's `Makefile.boot` suggests: the addresses are relative to zero (`kernel_addr`
-   `0x00008000`, `ramdisk_addr` `0x01000000`, `tags_addr` `0x00000100`, page size 2048, name
-   `sc8830`) and a **665 600 byte device tree area follows the ramdisk**. Rebuilding the
-   image from hand written `mkbootimg` offsets drops that area and moves the ramdisk, so
-   [`port/repackboot.py`](port/repackboot.py) copies the stock header page verbatim, keeps
-   the stock ramdisk and dt area byte for byte, and swaps only the kernel.
-3. Flash it from the tablet: copy `out/boot.img` over and use TWRP → Install → Install
-   Image → *Boot*. (`out/boot_*.tar.md5` is the same image packed for Odin — AP slot, Auto
-   Reboot off — if you would rather use a PC.)
-4. **Read the log without a UART jig.** Two channels, and the first one needs no tooling
-   at all: the kernel prints its log **on the tablet's own screen** through `simplefb` +
-   `fbcon`, reusing the framebuffer the bootloader leaves running, so a failed boot can
-   simply be photographed. The same log also goes to a persistent RAM console (`ramoops`,
-   1 MiB at `0x89b00000`, the top of the modem window — the one region that is both kept
-   out of the recovery kernel's allocator and still readable from it). After a boot
-   attempt, warm reboot into recovery with **Volume Up + Home + Power** and dump it:
-
-   ```sh
-   chmod +x /sdcard/memdump
-   /sdcard/memdump                     # 0x89b00000 + 0x100000 -> /sdcard/ramoops.bin
-   tail -n 200 /sdcard/ramoops.bin.txt
-   ```
-
-   `memdump` ([`tools/memdump.c`](tools/memdump.c)) is a small static ARM helper that CI
-   builds next to the kernel and ships in the same artifact; it also writes a
-   printable-only `.txt`, so the recovery does not need a `strings` binary. Do **not** use
-   `dd` for this: DRAM starts at `0x80000000`, that offset does not fit in a signed 32 bit
-   `off_t`, so `dd` ends up reading physical address 0 and prints
-   `dd: /dev/mem: Bad address`.
-
-   Never cut the power in between — the log lives in DRAM and only survives a warm reset.
-   [`docs/DEBUG-TWRP.md`](docs/DEBUG-TWRP.md) explains how to read the output and what an
-   empty buffer means. A 619 kOhm jig on the headphone jack (115200 8N1,
-   `earlycon=sprd_serial,0x70100000`) still works if you ever get one, but it is optional.
-5. First boot: flash `out/boot-nosmp.img` instead. It carries `nosmp maxcpus=1` both in the
-   boot image command line and in `/chosen/bootargs` of the appended DTB, because SMP
-   bring-up is the least tested part of this port. Move to `out/boot.img` once the log shows
-   it getting past that.
-6. Reaching `VFS: Unable to mount root fs` is the current success criterion: there is no
-   storage driver yet.
-
-## Credits
-
-* Spreadtrum/Samsung 3.10 vendor sources (`gtel3g/android_kernel_samsung_gtel3g`) — register
-  maps and bring-up sequences
-* postmarketOS wiki for `samsung-gtelwifi`
-* Mainline `timer-sprd.c` (v5.4) as a style reference (different timer generation)
-
-Kernel sources are GPL-2.0. New files added by this port carry GPL-2.0 headers.
+Linux 4.9.337 upstream; Samsung/Spreadtrum 3.10 vendor kernel and Android device
+sources; contributors to the SC7730SE bring-up and physical-device testing.
+Kernel code is GPL-2.0; retain the licenses of individual files.

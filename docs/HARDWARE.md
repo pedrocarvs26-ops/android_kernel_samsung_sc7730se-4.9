@@ -1,5 +1,33 @@
 # SC7730SE hardware notes
 
+Updated 2026-10-31. This is a register/reference document, not a functional
+checklist. SM-T560 boots Android 11; see [STATUS](STATUS.md) for current validation.
+SM-T561 board-source availability does not imply physical validation.
+
+## Validated setup and peripheral boundaries
+
+- SM-T560 / gtelwifi, SC7730SE, four Cortex-A7 cores, Mali-400 MP2,
+  1.5 GB RAM and 800 x 1280 display; Linux 4.9.337 with LineageOS 18.1.
+- Internal storage, display/touch, Wi-Fi, Bluetooth, cameras, audio, buttons and
+  USB ADB/MTP/tethering/OTG work in the tested setup.
+- K2HH acceleration reaches Android and screen rotation works after the v41
+  evdev compatibility fix. SX9500 appearing in the HAL does not prove that
+  a physical grip/SAR sensor is functional on this model.
+- BCM47520 GPS uses UART3 at `0x70300000`, `/dev/ttyS3`, 921600 baud, and
+  `clk_uart3` with a 26 MHz parent. GPIO 168 supplies the exported control at
+  `/sys/class/sec/gps/GPS_PWR_EN/value`. Chip response and satellite reception
+  are observed; a position fix is not. Android userspace fixes are also required.
+- SC2723 vibration is exposed through `/sys/class/leds/vibrator/` with transient
+  trigger `state`, `duration` and `activate`. Android and direct requests switch
+  driver state, but neither produced vibration felt by the owner. Do not equate
+  a driver or register write with an operational motor.
+- Wired-headset physical tests are deferred; microSD has no card available.
+  Battery readings/USB charging work; CPU thermal protection and deep sleep
+  remain unvalidated. SELinux is Permissive.
+
+The tables below retain vendor-reference information. The implemented source
+is authoritative where current SoC-specific handling differs from an older map.
+
 Everything below was recovered from the Samsung/Spreadtrum **3.10 vendor kernel** for
 `gtelwifi` / `gtel3g` (`arch/arm/mach-sc/`, `arch/arm/mach-sc/include/mach/chip_x30g/__regs_*.h`,
 `arch/arm/boot/dts/sprd-scx35*.dtsi`) and cross-checked against the vendor device tree.
@@ -18,7 +46,7 @@ and `arch/arm/boot/dts/sc7730se*.dts*` in this tree.
 | PMU (perf) interrupts | GIC SPI 92, 93, 94, 95 (one per core) |
 | Architected timer | **absent** (must use AON GP timers) |
 | PSCI / secure firmware | **absent** (custom `smp_ops` required) |
-| Vendor virtual io base | `SCI_IOMAP_BASE 0xF5000000` (not used by this port) |
+| Vendor virtual io base | `SCI_IOMAP_BASE 0xF5000000` (used by ported vendor-compatible mappings) |
 
 ## 2. Physical address map
 
@@ -139,8 +167,10 @@ AP_AHB (`0x20D00000`) offsets:
 |---|---|
 | `+0x0000` | `AHB_EB` |
 | `+0x0008` | `CA7_RST_SET` |
-| `+0x004C` | holding pen (secondary CPUs spin on this) |
-| `+0x0050` | CPU jump address table, `+0x04 * cpu` |
+| `+0x0014` | SCX30G holding pen |
+| `+0x0018..0x0024` | SCX30G CPU jump address table |
+| `+0x004C` | legacy holding pen (compatibility write in current implementation) |
+| `+0x0050` | legacy CPU jump table, `+0x04 * cpu` (compatibility write) |
 
 PMU_APB (`0x402B0000`) offsets:
 
@@ -171,8 +201,8 @@ vendor code: core1 `BIT(8..10)`, core2 `BIT(12..14)`, core3 `BIT(16..18)`.
 Bring-up sequence used by this port:
 
 1. clear `FORCE_SHUTDOWN` and set the delay fields in the core's `PD_CA7_Cn_CFG`,
-2. write the physical address of `secondary_startup` into `AP_AHB + 0x50 + 4 * cpu`,
-3. write the CPU mask into the holding pen at `AP_AHB + 0x4C`,
+2. write the physical address of `secondary_startup` into `AP_AHB + 0x18 + 4 * cpu` (plus the legacy jump-table compatibility write),
+3. write the CPU mask into the holding pen at `AP_AHB + 0x14` (plus the legacy holding-pen compatibility write),
 4. deassert the core reset in `CA7_RST_SET`.
 
 Hotplug down: `v7_exit_coherency_flush(all)`, leave SCU coherency, then
@@ -198,39 +228,21 @@ Boot addresses from the vendor `Makefile.boot`:
 
 ## 8. Console and boot chain
 
-* Debug UART: **UART1 at `0x70100000`**, GIC SPI 3, 26 MHz source clock.
-* The upstream `sprd_serial` driver matches `sprd,sc9836-uart` and provides
-  `OF_EARLYCON_DECLARE(sprd_serial, ...)`, so `earlycon=sprd_serial,0x70100000` works before
-  clocks and pinctrl are up.
-* Physical access to the UART is through the headphone jack with a **619 kOhm** resistor jig.
-  That jig is **optional** for this port. The primary log channel is the panel itself: the
-  bootloader leaves it initialised and passes `lcd_base=0x9ea44000`, so `simple-framebuffer`
-  plus `fbcon` print the kernel log on screen. The backup channel is the persistent RAM
-  console (`ramoops`, 1 MiB at `0x89b00000`), dumped from TWRP with
-  [`tools/memdump.c`](../tools/memdump.c) after a warm reboot — see
-  [`DEBUG-TWRP.md`](DEBUG-TWRP.md). `dd` cannot do that read: every DRAM address here is
-  above 2 GiB and overflows a 32-bit `off_t`. The vendor 3.10 kernel that TWRP runs is built
-  with `CONFIG_STRICT_DEVMEM` off and `CONFIG_DEVKMEM=y`, which is what makes reading raw
-  physical RAM from recovery possible at all.
-* **Not every reserved region can be read from recovery.** Reading the bootloader's `sec_log`
-  window (`0x86b00000`, 1 MiB) from TWRP resets the device on the spot: the recovery kernel
-  carves that window out of its own memory map, so the `/dev/mem` read faults in kernel
-  context and `panic_on_oops` reboots the tablet. The modem window
-  (`0x88000000..0x89c00000`) is reserved but still mapped, and is the only range this device
-  has ever completed a raw read from. Blind scanning of DRAM resets it as well, through the
-  TrustZone carve-outs. `cat /proc/iomem` in TWRP is the authoritative map.
-* The framebuffer handed over by the bootloader is `0x9ea44000 + 0x00bb8000`, which is exactly
-  three 800x1280x4 buffers. It is the `fb_reserved` carve-out and is marked `no-map`, which is
-  what lets `simplefb` `ioremap_wc()` it — ARM refuses `ioremap` on memory that is still in
-  the kernel's linear map.
-* **The bootloader builds its own kernel command line and ignores the one in the boot.img
-  header.** The line recovered from a running device is
-  `mem=1536M init=/init ... console=null loglevel=0 sec_log=0xffe00@0x86b00000
-  androidboot.bootloader=T560XXU0APL1 ...`. Two consequences: the only command line we
-  control is `/chosen/bootargs` in the **appended DTB**, and `CONFIG_ARM_ATAG_DTB_COMPAT`
-  must stay **off**, or the decompressor folds that `console=null loglevel=0` into the DTB
-  and overwrites ours.
-* The bootloader expects a Samsung `boot.img` containing `zImage` with an **appended DTB**
-  (`CONFIG_ARM_APPENDED_DTB`, without `ATAG_DTB_COMPAT`), flashed with Odin or heimdall.
-* Vendor kernel command line: `androidboot.hardware=sc8830`; vendor `CONFIG_HZ=100`,
-  `CONFIG_PAGE_OFFSET=0xC0000000`, `CONFIG_NR_CPUS=4`.
+- Debug UART1 is at `0x70100000`, GIC SPI 3, with a 26 MHz source clock.
+  UART3 at `0x70300000` is used by GPS, not the debug console.
+- Early bring-up experimented with a bootloader framebuffer at `0x9ea44000`,
+  simplefb/fbcon and ramoops at `0x89b00000`. These are historical configurations;
+  current Android display ownership and logging must be checked in the actual image.
+- The current tree implements Samsung sec_log / `/proc/last_kmsg` support.
+  Prefer existing log interfaces over raw physical-memory reads. Earlier raw
+  reads of `0x86b00000` and blind memory scans reset the tested recovery.
+  See [DEBUG-TWRP](DEBUG-TWRP.md) for recovery evidence and limitations.
+- S-Boot may supply its own command line. Appended DTB arguments and initrd
+  handoff need to be consistent with the boot image. Blindly enabling
+  `CONFIG_ARM_ATAG_DTB_COMPAT` previously merged `console=null loglevel=0`
+  over useful diagnostic arguments.
+- Preserve the known-working boot image's header, ramdisk and Samsung device-tree
+  area. Vendor `Makefile.boot` physical addresses alone are not sufficient to
+  reconstruct an installed ROM's boot image.
+- Vendor userspace identifies hardware as `sc8830`. SM-T560 validation does not
+  establish modem or model-specific hardware support on SM-T561.
