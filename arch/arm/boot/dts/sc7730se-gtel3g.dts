@@ -96,3 +96,7 @@
 		sx9500-i2c,nirq-gpio = <&d_gpio 167 0x0>;
 	};
 };
+
+&uart3 {
+	status = "okay";
+};
