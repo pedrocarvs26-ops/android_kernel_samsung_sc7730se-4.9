@@ -14,8 +14,6 @@
 #ifndef	_ION_SPRD_H
 #define _ION_SPRD_H
 
-#include <linux/types.h>
-
 #define ION_HEAP_ID_SYSTEM	1
 #define ION_HEAP_ID_MM		2
 #define ION_HEAP_ID_OVERLAY	3
